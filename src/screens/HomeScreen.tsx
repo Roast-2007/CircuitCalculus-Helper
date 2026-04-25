@@ -17,8 +17,14 @@ import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { manipulateAsync, SaveFormat, ImageResult } from "expo-image-manipulator";
 import { buildDeepSeekCircuitPrompt, createCircuitTopology } from "../services/circuitSerialize";
-import { loadKeys } from "../services/storage";
-import { streamSiliconFlowKimi, streamDeepSeek, CancelFn } from "../services/api";
+import { loadAppSettings } from "../services/storage";
+import { streamVisualRecognition, streamReasoning, CancelFn } from "../services/api";
+import {
+  findVisualPreset,
+  findReasoningPreset,
+  resolveApiUrl,
+  resolveModel,
+} from "../constants/providerPresets";
 import { parseKimiResponse } from "../services/circuitParser";
 import {
   createConversation,
@@ -297,14 +303,21 @@ export default function HomeScreen() {
     setPendingImageData(null);
   }, []);
 
-  const startDeepSeekStream = useCallback(
+  const startReasoningStream = useCallback(
     async (messageId: string, problemText: string) => {
-      const keys = await loadKeys();
+      const settings = await loadAppSettings();
+      const preset = findReasoningPreset(settings.reasoning.providerId);
+      if (!preset) return;
+      const url = resolveApiUrl(settings.reasoning, preset);
+      const model = resolveModel(settings.reasoning, preset);
+      const key = settings.reasoning.apiKey;
+      if (!url) return;
       activeDeepSeekCancelRef.current?.();
-      activeDeepSeekCancelRef.current = streamDeepSeek(
+      activeDeepSeekCancelRef.current = streamReasoning(
         problemText,
-        keys.deepseekModel,
-        keys.deepseekKey,
+        model,
+        key,
+        url,
         (reasoning) => updateMessage(messageId, { reasoning }),
         (content) => updateMessage(messageId, { content }),
         () => {
@@ -342,9 +355,9 @@ export default function HomeScreen() {
         status: "sending",
       });
 
-      await startDeepSeekStream(aiMessageId, problemText);
+      await startReasoningStream(aiMessageId, problemText);
     },
-    [reviewData, addMessage, startDeepSeekStream]
+    [reviewData, addMessage, startReasoningStream]
   );
 
   const handleMessageCircuitConfirm = useCallback(
@@ -363,9 +376,9 @@ export default function HomeScreen() {
         status: "sending",
       });
 
-      startDeepSeekStream(aiMessageId, buildDeepSeekCircuitPrompt(topology, "", ""));
+      startReasoningStream(aiMessageId, buildDeepSeekCircuitPrompt(topology, "", ""));
     },
-    [addMessage, startDeepSeekStream]
+    [addMessage, startReasoningStream]
   );
 
   const handleTextConfirm = useCallback(async () => {
@@ -393,8 +406,8 @@ export default function HomeScreen() {
       status: "sending",
     });
 
-    await startDeepSeekStream(aiMessageId, problemText);
-  }, [reviewData, reviewEditText, reviewNotes, addMessage, startDeepSeekStream]);
+    await startReasoningStream(aiMessageId, problemText);
+  }, [reviewData, reviewEditText, reviewNotes, addMessage, startReasoningStream]);
 
   const handleReviewCancel = useCallback(() => {
     resetReviewState();
@@ -409,11 +422,19 @@ export default function HomeScreen() {
     }
 
     clearActiveStreams();
-    const keys = await loadKeys();
+    const settings = await loadAppSettings();
+    const vPreset = findVisualPreset(settings.visual.providerId);
+    const rPreset = findReasoningPreset(settings.reasoning.providerId);
+    const visualUrl = resolveApiUrl(settings.visual, vPreset);
+    const visualModel = resolveModel(settings.visual, vPreset);
+    const visualKey = settings.visual.apiKey;
+    const reasoningUrl = resolveApiUrl(settings.reasoning, rPreset);
+    const reasoningModel = resolveModel(settings.reasoning, rPreset);
+    const reasoningKey = settings.reasoning.apiKey;
 
     if (!pendingImageData) {
-      if (!keys.deepseekKey.trim()) {
-        Alert.alert("提示", "请先在设置中配置 DeepSeek API Key");
+      if (!reasoningKey.trim()) {
+        Alert.alert("提示", `请先在设置中配置${rPreset?.label ?? "推理模型"} API Key`);
         return;
       }
 
@@ -437,17 +458,22 @@ export default function HomeScreen() {
         status: "sending",
       });
 
-      await startDeepSeekStream(aiMessageId, text);
+      await startReasoningStream(aiMessageId, text);
       return;
     }
 
-    if (!keys.siliconflowKey.trim()) {
-      Alert.alert("提示", "请先在设置中配置硅基流动 API Key");
+    if (!visualKey.trim()) {
+      Alert.alert("提示", `请先在设置中配置${vPreset?.label ?? "视觉识别模型"} API Key`);
       return;
     }
 
-    if (!keys.deepseekKey.trim()) {
-      Alert.alert("提示", "请先在设置中配置 DeepSeek API Key");
+    if (!reasoningKey.trim()) {
+      Alert.alert("提示", `请先在设置中配置${rPreset?.label ?? "推理模型"} API Key`);
+      return;
+    }
+
+    if (!visualUrl) {
+      Alert.alert("提示", "请先在设置中配置视觉识别模型的 API 地址");
       return;
     }
 
@@ -477,10 +503,11 @@ export default function HomeScreen() {
 
     let fullDescription = "";
     activeKimiCancelRef.current?.();
-    activeKimiCancelRef.current = streamSiliconFlowKimi(
+    activeKimiCancelRef.current = streamVisualRecognition(
       imageBase64,
-      keys.siliconflowModel,
-      keys.siliconflowKey,
+      visualModel,
+      visualKey,
+      visualUrl,
       "circuit",
       (content) => {
         fullDescription = content;
@@ -522,7 +549,7 @@ export default function HomeScreen() {
           status: "sending",
         });
 
-        startDeepSeekStream(aiMessageId, combinedText);
+        startReasoningStream(aiMessageId, combinedText);
       },
       (error) => {
         updateMessage(kimiMessageId, { content: error.message, status: "error" });
@@ -535,7 +562,7 @@ export default function HomeScreen() {
     pendingImageData,
     clearActiveStreams,
     addMessage,
-    startDeepSeekStream,
+    startReasoningStream,
     updateMessage,
   ]);
 

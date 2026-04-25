@@ -6,7 +6,7 @@ import { Platform, Text, View, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import HomeScreen from "./src/screens/HomeScreen";
 import SettingsScreen from "./src/screens/SettingsScreen";
-import { loadKeys } from "./src/services/storage";
+import { loadAppSettings } from "./src/services/storage";
 import { TabParamList } from "./src/types";
 import { theme } from "./src/theme";
 
@@ -17,7 +17,7 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
-      await loadKeys();
+      await loadAppSettings();
       setConfigReady(true);
     })();
   }, []);

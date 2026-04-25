@@ -12,64 +12,170 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { ApiKeys, DEFAULT_DEEPSEEK_MODEL, DEFAULT_SILICONFLOW_MODEL } from "../types";
-import { loadKeys, saveKeys } from "../services/storage";
-import { testApiConnection, Provider } from "../services/api";
+import { AppSettings, ProviderPreset, ProviderSelection } from "../types";
+import { loadAppSettings, saveAppSettings } from "../services/storage";
+import { testApiConnection } from "../services/api";
+import { getEmbeddedSettings } from "../services/embeddedKeys";
+import {
+  VISUAL_PRESETS,
+  REASONING_PRESETS,
+  findVisualPreset,
+  findReasoningPreset,
+  defaultSelectionForPreset,
+  resolveApiUrl,
+  resolveModel,
+} from "../constants/providerPresets";
+import ProviderDropdown from "../components/ProviderDropdown";
 import { theme } from "../theme";
 
+function providerOptions(presets: ProviderPreset[]) {
+  return presets.map((p) => ({ id: p.id, label: p.label }));
+}
+
+function modelOptions(preset: ProviderPreset | undefined) {
+  if (!preset) return [];
+  return preset.models.map((m) => ({
+    id: m.id,
+    label: m.label,
+    tier: m.tier,
+    tierHint: m.tierHint,
+  }));
+}
+
 export default function SettingsScreen() {
-  const [keys, setKeys] = useState<ApiKeys>({
-    deepseekKey: "",
-    siliconflowKey: "",
-    deepseekModel: DEFAULT_DEEPSEEK_MODEL,
-    siliconflowModel: DEFAULT_SILICONFLOW_MODEL,
-  });
+  const [visual, setVisual] = useState<ProviderSelection | null>(null);
+  const [reasoning, setReasoning] = useState<ProviderSelection | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [testingProvider, setTestingProvider] = useState<Provider | null>(null);
+  const [testingVisual, setTestingVisual] = useState(false);
+  const [testingReasoning, setTestingReasoning] = useState(false);
 
   useEffect(() => {
     (async () => {
-      const saved = await loadKeys();
-      setKeys(saved);
+      const settings = await loadAppSettings();
+      setVisual(settings.visual);
+      setReasoning(settings.reasoning);
       setLoaded(true);
     })();
   }, []);
 
-  const updateField = useCallback((field: keyof ApiKeys, value: string) => {
-    setKeys((prev) => ({ ...prev, [field]: value }));
-  }, []);
+  const visualPreset = visual ? findVisualPreset(visual.providerId) : undefined;
+  const reasoningPreset = reasoning ? findReasoningPreset(reasoning.providerId) : undefined;
+
+  const doSwitchVisualProvider = useCallback(
+    (newProviderId: string) => {
+      const preset = findVisualPreset(newProviderId);
+      if (!preset) return;
+      const embedded = getEmbeddedSettings();
+      setVisual({
+        ...defaultSelectionForPreset(preset),
+        apiKey:
+          embedded?.visual.providerId === newProviderId
+            ? embedded.visual.apiKey
+            : "",
+      });
+    },
+    []
+  );
+
+  const handleVisualProviderChange = useCallback(
+    (newProviderId: string) => {
+      if (!visual || newProviderId === visual.providerId) return;
+      if (visual.apiKey.trim()) {
+        const newPreset = findVisualPreset(newProviderId);
+        Alert.alert(
+          "切换供应商",
+          `切换到「${newPreset?.label ?? "自定义"}」需要配置对应的 API Key，当前已填写的 Key 可能不适用。是否继续？`,
+          [
+            { text: "取消", style: "cancel" },
+            { text: "确定切换", onPress: () => doSwitchVisualProvider(newProviderId) },
+          ]
+        );
+      } else {
+        doSwitchVisualProvider(newProviderId);
+      }
+    },
+    [visual, doSwitchVisualProvider]
+  );
+
+  const doSwitchReasoningProvider = useCallback(
+    (newProviderId: string) => {
+      const preset = findReasoningPreset(newProviderId);
+      if (!preset) return;
+      const embedded = getEmbeddedSettings();
+      setReasoning({
+        ...defaultSelectionForPreset(preset),
+        apiKey:
+          embedded?.reasoning.providerId === newProviderId
+            ? embedded.reasoning.apiKey
+            : "",
+      });
+    },
+    []
+  );
+
+  const handleReasoningProviderChange = useCallback(
+    (newProviderId: string) => {
+      if (!reasoning || newProviderId === reasoning.providerId) return;
+      if (reasoning.apiKey.trim()) {
+        const newPreset = findReasoningPreset(newProviderId);
+        Alert.alert(
+          "切换供应商",
+          `切换到「${newPreset?.label ?? "自定义"}」需要配置对应的 API Key，当前已填写的 Key 可能不适用。是否继续？`,
+          [
+            { text: "取消", style: "cancel" },
+            { text: "确定切换", onPress: () => doSwitchReasoningProvider(newProviderId) },
+          ]
+        );
+      } else {
+        doSwitchReasoningProvider(newProviderId);
+      }
+    },
+    [reasoning, doSwitchReasoningProvider]
+  );
 
   const handleSave = useCallback(async () => {
+    if (!visual || !reasoning) return;
     setSaving(true);
     try {
-      await saveKeys(keys);
-      Alert.alert("保存成功", "API Key 和模型配置已保存");
+      await saveAppSettings({ visual, reasoning });
+      Alert.alert("保存成功", "设置已保存");
     } catch {
       Alert.alert("保存失败", "请重试");
     } finally {
       setSaving(false);
     }
-  }, [keys]);
+  }, [visual, reasoning]);
 
-  const handleTestConnection = useCallback(
-    async (provider: Provider) => {
-      setTestingProvider(provider);
-      const key =
-        provider === "deepseek" ? keys.deepseekKey : keys.siliconflowKey;
-      const model =
-        provider === "deepseek" ? keys.deepseekModel : keys.siliconflowModel;
-      const result = await testApiConnection(provider, key, model);
-      setTestingProvider(null);
-      Alert.alert(
-        result.success ? "连接成功" : "连接失败",
-        result.message
-      );
-    },
-    [keys]
-  );
+  const handleTestVisual = useCallback(async () => {
+    if (!visual || !visualPreset) return;
+    const url = resolveApiUrl(visual, visualPreset);
+    const model = resolveModel(visual, visualPreset);
+    if (!url) {
+      Alert.alert("错误", "请填写 API 地址");
+      return;
+    }
+    setTestingVisual(true);
+    const result = await testApiConnection(url, visual.apiKey, model, visualPreset.label);
+    setTestingVisual(false);
+    Alert.alert(result.success ? "连接成功" : "连接失败", result.message);
+  }, [visual, visualPreset]);
 
-  if (!loaded) {
+  const handleTestReasoning = useCallback(async () => {
+    if (!reasoning || !reasoningPreset) return;
+    const url = resolveApiUrl(reasoning, reasoningPreset);
+    const model = resolveModel(reasoning, reasoningPreset);
+    if (!url) {
+      Alert.alert("错误", "请填写 API 地址");
+      return;
+    }
+    setTestingReasoning(true);
+    const result = await testApiConnection(url, reasoning.apiKey, model, reasoningPreset.label);
+    setTestingReasoning(false);
+    Alert.alert(result.success ? "连接成功" : "连接失败", result.message);
+  }, [reasoning, reasoningPreset]);
+
+  if (!loaded || !visual || !reasoning) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="small" color={theme.colors.primary} />
@@ -77,6 +183,11 @@ export default function SettingsScreen() {
       </View>
     );
   }
+
+  const currentVisualModel = visualPreset?.models.find((m) => m.id === visual.modelId);
+  const currentReasoningModel = reasoningPreset?.models.find((m) => m.id === reasoning.modelId);
+  const isCustomVisual = visualPreset?.id === "custom_openai_visual";
+  const isCustomReasoning = reasoningPreset?.id === "custom_openai_reasoning";
 
   return (
     <KeyboardAvoidingView
@@ -91,80 +202,220 @@ export default function SettingsScreen() {
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
       >
-        {/* DeepSeek Section */}
+        {/* 视觉识别模型 */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>DeepSeek 配置</Text>
+          <Text style={styles.sectionTitle}>视觉识别模型</Text>
+          <Text style={styles.sectionSubtitle}>拍照后用于识别题目和电路结构</Text>
+
+          <ProviderDropdown
+            label="供应商"
+            options={providerOptions(VISUAL_PRESETS)}
+            selectedId={visual.providerId}
+            onSelect={handleVisualProviderChange}
+          />
+
+          {visualPreset?.modelField === "locked" ? (
+            <ProviderDropdown
+              label="模型"
+              options={modelOptions(visualPreset)}
+              selectedId={visual.modelId}
+              onSelect={(modelId) =>
+                setVisual((prev) => (prev ? { ...prev, modelId } : prev))
+              }
+            />
+          ) : (
+            <>
+              <Text style={styles.fieldLabel}>模型名</Text>
+              <TextInput
+                style={styles.input}
+                value={visual.customModelName}
+                onChangeText={(v) =>
+                  setVisual((prev) => (prev ? { ...prev, customModelName: v } : prev))
+                }
+                placeholder="如 gpt-4o"
+                placeholderTextColor={theme.colors.mutedForeground}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+            </>
+          )}
+
+          {currentVisualModel?.tierHint && (
+            <View style={styles.tierHintRow}>
+              <View style={[styles.tierBadgeSmall, currentVisualModel.tier === "pro" ? styles.tierPro : styles.tierFast]}>
+                <Text style={styles.tierBadgeSmallText}>
+                  {currentVisualModel.tier === "pro" ? "增强" : "快速"}
+                </Text>
+              </View>
+              <Text style={styles.tierHintText}>{currentVisualModel.tierHint}</Text>
+            </View>
+          )}
+
           <Text style={styles.fieldLabel}>API Key</Text>
           <TextInput
             style={styles.input}
-            value={keys.deepseekKey}
-            onChangeText={(v) => updateField("deepseekKey", v)}
-            placeholder="输入 DeepSeek API Key"
+            value={visual.apiKey}
+            onChangeText={(v) =>
+              setVisual((prev) => (prev ? { ...prev, apiKey: v } : prev))
+            }
+            placeholder="输入 API Key"
             placeholderTextColor={theme.colors.mutedForeground}
             secureTextEntry
             autoCapitalize="none"
             autoCorrect={false}
           />
-          <Text style={styles.fieldLabel}>模型名</Text>
-          <TextInput
-            style={styles.input}
-            value={keys.deepseekModel}
-            onChangeText={(v) => updateField("deepseekModel", v)}
-            placeholder={DEFAULT_DEEPSEEK_MODEL}
-            placeholderTextColor={theme.colors.mutedForeground}
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
+
+          {isCustomVisual ? (
+            <View style={styles.customFields}>
+              <Text style={styles.fieldLabel}>API 地址</Text>
+              <TextInput
+                style={styles.input}
+                value={visual.customApiUrl}
+                onChangeText={(v) =>
+                  setVisual((prev) => (prev ? { ...prev, customApiUrl: v } : prev))
+                }
+                placeholder="https://api.openai.com/v1"
+                placeholderTextColor={theme.colors.mutedForeground}
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="url"
+              />
+            </View>
+          ) : (
+            <View style={styles.readonlyField}>
+              <Text style={styles.fieldLabel}>API 地址</Text>
+              <View style={styles.readonlyValue}>
+                <Text style={styles.readonlyValueText}>
+                  {visualPreset?.apiUrl ?? ""}
+                </Text>
+              </View>
+            </View>
+          )}
+
+          {isCustomVisual && (
+            <View style={styles.warningBanner}>
+              <Ionicons name="warning-outline" size={16} color={theme.colors.warningText} />
+              <Text style={styles.warningText}>
+                自定义视觉模型必须是多模态模型（支持图片输入），否则识别将失败
+              </Text>
+            </View>
+          )}
+
           <Pressable
-            onPress={() => handleTestConnection("deepseek")}
+            onPress={handleTestVisual}
             style={({ pressed }) => [
               styles.testBtn,
-              testingProvider === "deepseek" && styles.testBtnDisabled,
+              testingVisual && styles.testBtnDisabled,
               pressed && { opacity: 0.7 },
             ]}
-            disabled={testingProvider === "deepseek"}
+            disabled={testingVisual}
           >
             <Text style={styles.testBtnText}>
-              {testingProvider === "deepseek" ? "测试中..." : "测试 DeepSeek 连接"}
+              {testingVisual ? "测试中..." : "测试视觉连接"}
             </Text>
           </Pressable>
         </View>
 
-        {/* SiliconFlow Section */}
+        {/* 推理模型 */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>硅基流动配置</Text>
+          <Text style={styles.sectionTitle}>推理模型</Text>
+          <Text style={styles.sectionSubtitle}>识别完成后用于数学/电路分析解答</Text>
+
+          <ProviderDropdown
+            label="供应商"
+            options={providerOptions(REASONING_PRESETS)}
+            selectedId={reasoning.providerId}
+            onSelect={handleReasoningProviderChange}
+          />
+
+          {reasoningPreset?.modelField === "locked" ? (
+            <ProviderDropdown
+              label="模型"
+              options={modelOptions(reasoningPreset)}
+              selectedId={reasoning.modelId}
+              onSelect={(modelId) =>
+                setReasoning((prev) => (prev ? { ...prev, modelId } : prev))
+              }
+            />
+          ) : (
+            <>
+              <Text style={styles.fieldLabel}>模型名</Text>
+              <TextInput
+                style={styles.input}
+                value={reasoning.customModelName}
+                onChangeText={(v) =>
+                  setReasoning((prev) => (prev ? { ...prev, customModelName: v } : prev))
+                }
+                placeholder="如 gpt-4o"
+                placeholderTextColor={theme.colors.mutedForeground}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+            </>
+          )}
+
+          {currentReasoningModel?.tierHint && (
+            <View style={styles.tierHintRow}>
+              <View style={[styles.tierBadgeSmall, currentReasoningModel.tier === "pro" ? styles.tierPro : styles.tierFast]}>
+                <Text style={styles.tierBadgeSmallText}>
+                  {currentReasoningModel.tier === "pro" ? "增强" : "快速"}
+                </Text>
+              </View>
+              <Text style={styles.tierHintText}>{currentReasoningModel.tierHint}</Text>
+            </View>
+          )}
+
           <Text style={styles.fieldLabel}>API Key</Text>
           <TextInput
             style={styles.input}
-            value={keys.siliconflowKey}
-            onChangeText={(v) => updateField("siliconflowKey", v)}
-            placeholder="输入硅基流动 API Key"
+            value={reasoning.apiKey}
+            onChangeText={(v) =>
+              setReasoning((prev) => (prev ? { ...prev, apiKey: v } : prev))
+            }
+            placeholder="输入 API Key"
             placeholderTextColor={theme.colors.mutedForeground}
             secureTextEntry
             autoCapitalize="none"
             autoCorrect={false}
           />
-          <Text style={styles.fieldLabel}>模型名</Text>
-          <TextInput
-            style={styles.input}
-            value={keys.siliconflowModel}
-            onChangeText={(v) => updateField("siliconflowModel", v)}
-            placeholder={DEFAULT_SILICONFLOW_MODEL}
-            placeholderTextColor={theme.colors.mutedForeground}
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
+
+          {isCustomReasoning ? (
+            <View style={styles.customFields}>
+              <Text style={styles.fieldLabel}>API 地址</Text>
+              <TextInput
+                style={styles.input}
+                value={reasoning.customApiUrl}
+                onChangeText={(v) =>
+                  setReasoning((prev) => (prev ? { ...prev, customApiUrl: v } : prev))
+                }
+                placeholder="https://api.deepseek.com/v1"
+                placeholderTextColor={theme.colors.mutedForeground}
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="url"
+              />
+            </View>
+          ) : (
+            <View style={styles.readonlyField}>
+              <Text style={styles.fieldLabel}>API 地址</Text>
+              <View style={styles.readonlyValue}>
+                <Text style={styles.readonlyValueText}>
+                  {reasoningPreset?.apiUrl ?? ""}
+                </Text>
+              </View>
+            </View>
+          )}
           <Pressable
-            onPress={() => handleTestConnection("siliconflow")}
+            onPress={handleTestReasoning}
             style={({ pressed }) => [
               styles.testBtn,
-              testingProvider === "siliconflow" && styles.testBtnDisabled,
+              testingReasoning && styles.testBtnDisabled,
               pressed && { opacity: 0.7 },
             ]}
-            disabled={testingProvider === "siliconflow"}
+            disabled={testingReasoning}
           >
             <Text style={styles.testBtnText}>
-              {testingProvider === "siliconflow" ? "测试中..." : "测试硅基流动连接"}
+              {testingReasoning ? "测试中..." : "测试推理连接"}
             </Text>
           </Pressable>
         </View>
@@ -173,10 +424,12 @@ export default function SettingsScreen() {
         <View style={styles.infoSection}>
           <Text style={styles.infoTitle}>使用说明</Text>
           <Text style={styles.infoText}>
-            1. 在 DeepSeek 官网 (platform.deepseek.com) 获取 API Key{'\n'}
-            2. 在硅基流动官网 (siliconflow.cn) 获取 API Key{'\n'}
-            3. 拍照上传数学题或电路图{'\n'}
-            4. Kimi K2.6 识别内容 → DeepSeek V4 Pro 解答
+            1. 选择视觉识别模型的供应商和模型{'\n'}
+            2. 填写对应的 API Key{'\n'}
+            3. 选择推理模型的供应商和模型{'\n'}
+            4. 填写对应的 API Key{'\n'}
+            5. 拍照上传数学题或电路图开始使用{'\n'}
+            6. 增强型模型适合复杂题目，快速型模型适合简单题
           </Text>
         </View>
 
@@ -238,7 +491,12 @@ const styles = StyleSheet.create({
     fontSize: theme.fontSize.base,
     fontWeight: theme.fontWeight.semibold,
     color: theme.colors.foreground,
-    marginBottom: theme.spacing.md,
+  },
+  sectionSubtitle: {
+    fontSize: theme.fontSize.sm,
+    color: theme.colors.mutedForeground,
+    marginTop: 2,
+    marginBottom: theme.spacing.sm,
   },
   fieldLabel: {
     fontSize: theme.fontSize.sm,
@@ -256,6 +514,66 @@ const styles = StyleSheet.create({
     color: theme.colors.foreground,
     borderWidth: 1,
     borderColor: theme.colors.border,
+  },
+  readonlyField: {
+    marginTop: theme.spacing.sm,
+  },
+  readonlyValue: {
+    backgroundColor: theme.colors.muted,
+    borderRadius: theme.radius.lg,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    opacity: 0.6,
+  },
+  readonlyValueText: {
+    fontSize: theme.fontSize.sm,
+    color: theme.colors.mutedForeground,
+  },
+  customFields: {
+    // container for custom-only fields
+  },
+  tierHintRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing.sm,
+    marginTop: theme.spacing.xs,
+    marginBottom: theme.spacing.xs,
+  },
+  tierBadgeSmall: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: theme.radius.sm,
+    overflow: "hidden",
+  },
+  tierBadgeSmallText: {
+    fontSize: theme.fontSize.xs,
+    fontWeight: theme.fontWeight.semibold,
+    color: "#fff",
+  },
+  tierPro: { backgroundColor: "#FF9800" },
+  tierFast: { backgroundColor: "#4CAF50" },
+  tierHintText: {
+    fontSize: theme.fontSize.sm,
+    color: theme.colors.mutedForeground,
+  },
+  warningBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing.sm,
+    backgroundColor: "#FFF8E1",
+    borderRadius: theme.radius.lg,
+    padding: theme.spacing.md,
+    marginTop: theme.spacing.md,
+    borderWidth: 1,
+    borderColor: "#FFE082",
+  },
+  warningText: {
+    flex: 1,
+    fontSize: theme.fontSize.sm,
+    color: theme.colors.warningText,
+    lineHeight: 18,
   },
   infoSection: {
     backgroundColor: theme.colors.primaryMuted,

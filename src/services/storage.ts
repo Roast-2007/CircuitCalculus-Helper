@@ -1,15 +1,20 @@
 import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
-import { ApiKeys, DEFAULT_DEEPSEEK_MODEL, DEFAULT_SILICONFLOW_MODEL } from "../types";
+import { AppSettings, ProviderSelection } from "../types";
+import { defaultSelectionForPreset, findVisualPreset, findReasoningPreset } from "../constants/providerPresets";
+import { getEmbeddedSettings } from "./embeddedKeys";
 
-const KEYS = {
+const VISUAL_KEY = "app_settings_visual";
+const REASONING_KEY = "app_settings_reasoning";
+
+// 旧键（迁移用）
+const OLD_KEYS = {
   DEEPSEEK_KEY: "deepseek_api_key",
   SILICONFLOW_KEY: "siliconflow_api_key",
   DEEPSEEK_MODEL: "deepseek_model",
   SILICONFLOW_MODEL: "siliconflow_model",
 };
 
-// SecureStore only works on physical devices, not Expo Go
 const isSecure = Platform.OS !== "web";
 
 async function setItem(key: string, value: string): Promise<void> {
@@ -31,35 +36,90 @@ async function deleteItem(key: string): Promise<void> {
   }
 }
 
-export async function saveKeys(keys: ApiKeys): Promise<void> {
-  await setItem(KEYS.DEEPSEEK_KEY, keys.deepseekKey);
-  await setItem(KEYS.SILICONFLOW_KEY, keys.siliconflowKey);
-  await setItem(KEYS.DEEPSEEK_MODEL, keys.deepseekModel);
-  await setItem(KEYS.SILICONFLOW_MODEL, keys.siliconflowModel);
-}
-
-export async function loadKeys(): Promise<ApiKeys> {
-  const [deepseekKey, siliconflowKey, deepseekModel, siliconflowModel] =
-    await Promise.all([
-      getItem(KEYS.DEEPSEEK_KEY),
-      getItem(KEYS.SILICONFLOW_KEY),
-      getItem(KEYS.DEEPSEEK_MODEL),
-      getItem(KEYS.SILICONFLOW_MODEL),
-    ]);
-
+function createDefaultSettings(): AppSettings {
+  const visualPreset = findVisualPreset("siliconflow")!;
+  const reasoningPreset = findReasoningPreset("deepseek")!;
   return {
-    deepseekKey: deepseekKey ?? "",
-    siliconflowKey: siliconflowKey ?? "",
-    deepseekModel: deepseekModel ?? DEFAULT_DEEPSEEK_MODEL,
-    siliconflowModel: siliconflowModel ?? DEFAULT_SILICONFLOW_MODEL,
+    visual: defaultSelectionForPreset(visualPreset),
+    reasoning: defaultSelectionForPreset(reasoningPreset),
   };
 }
 
-export async function clearKeys(): Promise<void> {
+function mergeEmbeddedSettings(settings: AppSettings): AppSettings {
+  const embedded = getEmbeddedSettings();
+  if (!embedded) return settings;
+
+  return {
+    visual: {
+      ...settings.visual,
+      apiKey: settings.visual.apiKey || embedded.visual.apiKey,
+    },
+    reasoning: {
+      ...settings.reasoning,
+      apiKey: settings.reasoning.apiKey || embedded.reasoning.apiKey,
+    },
+  };
+}
+
+async function migrateFromOldKeys(): Promise<AppSettings> {
+  const [deepseekKey, siliconflowKey, deepseekModel, siliconflowModel] =
+    await Promise.all([
+      getItem(OLD_KEYS.DEEPSEEK_KEY),
+      getItem(OLD_KEYS.SILICONFLOW_KEY),
+      getItem(OLD_KEYS.DEEPSEEK_MODEL),
+      getItem(OLD_KEYS.SILICONFLOW_MODEL),
+    ]);
+
+  const defaults = createDefaultSettings();
+
+  const settings: AppSettings = {
+    visual: {
+      ...defaults.visual,
+      providerId: "siliconflow",
+      modelId: siliconflowModel || defaults.visual.modelId,
+      apiKey: siliconflowKey ?? "",
+    },
+    reasoning: {
+      ...defaults.reasoning,
+      providerId: "deepseek",
+      modelId: deepseekModel || defaults.reasoning.modelId,
+      apiKey: deepseekKey ?? "",
+    },
+  };
+
+  await saveAppSettings(settings);
+
+  // 清理旧键
+  await Promise.all(
+    Object.values(OLD_KEYS).map((key) => deleteItem(key))
+  );
+
+  return mergeEmbeddedSettings(settings);
+}
+
+export async function saveAppSettings(settings: AppSettings): Promise<void> {
   await Promise.all([
-    deleteItem(KEYS.DEEPSEEK_KEY),
-    deleteItem(KEYS.SILICONFLOW_KEY),
-    deleteItem(KEYS.DEEPSEEK_MODEL),
-    deleteItem(KEYS.SILICONFLOW_MODEL),
+    setItem(VISUAL_KEY, JSON.stringify(settings.visual)),
+    setItem(REASONING_KEY, JSON.stringify(settings.reasoning)),
   ]);
+}
+
+export async function loadAppSettings(): Promise<AppSettings> {
+  const [visualJson, reasoningJson] = await Promise.all([
+    getItem(VISUAL_KEY),
+    getItem(REASONING_KEY),
+  ]);
+
+  if (visualJson && reasoningJson) {
+    try {
+      return mergeEmbeddedSettings({
+        visual: JSON.parse(visualJson),
+        reasoning: JSON.parse(reasoningJson),
+      });
+    } catch {
+      // fall through to migration
+    }
+  }
+
+  return migrateFromOldKeys();
 }

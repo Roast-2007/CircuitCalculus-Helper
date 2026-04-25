@@ -1,9 +1,35 @@
-export type ApiKeys = {
-  deepseekKey: string;
-  siliconflowKey: string;
-  deepseekModel: string;
-  siliconflowModel: string;
-};
+// ---- 设置 / API 类型 ----
+
+export type ModelTier = "fast" | "pro";
+
+export interface ModelOption {
+  id: string;
+  label: string;
+  tier: ModelTier;
+  tierHint: string;
+}
+
+export interface ProviderPreset {
+  id: string;
+  label: string;
+  apiUrl: string | null;
+  apiKeyField: "required" | "unlocked";
+  modelField: "locked" | "unlocked";
+  models: ModelOption[];
+}
+
+export interface ProviderSelection {
+  providerId: string;
+  modelId: string;
+  apiKey: string;
+  customApiUrl: string;
+  customModelName: string;
+}
+
+export interface AppSettings {
+  visual: ProviderSelection;
+  reasoning: ProviderSelection;
+}
 
 export type MessageStatus = "sending" | "sent" | "error";
 
@@ -187,6 +213,3 @@ export type CircuitValidationIssue = {
   level: "warning" | "error";
   message: string;
 };
-
-export const DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-pro";
-export const DEFAULT_SILICONFLOW_MODEL = "Pro/moonshotai/Kimi-K2.5";

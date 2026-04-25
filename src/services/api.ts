@@ -1,6 +1,3 @@
-const SILICONFLOW_BASE = "https://api.siliconflow.cn/v1";
-const DEEPSEEK_BASE = "https://api.deepseek.com/v1";
-
 /** If no data received for this long, abort */
 const DEFAULT_SILENCE_TIMEOUT = 120_000;
 
@@ -8,7 +5,7 @@ export class ApiError extends Error {
   constructor(
     message: string,
     public readonly statusCode?: number,
-    public readonly provider?: Provider
+    public readonly provider?: string
   ) {
     super(message);
     this.name = "ApiError";
@@ -17,13 +14,11 @@ export class ApiError extends Error {
 
 export type CancelFn = () => void;
 
-export type Provider = "siliconflow" | "deepseek";
-
 type StreamHandlers = {
   onData: (rawJson: string) => void;
   onDone: () => void;
   onError: (err: Error) => void;
-  provider: Provider;
+  provider: string;
   silenceTimeoutMs?: number;
   disableSilenceTimeout?: boolean;
 };
@@ -35,10 +30,6 @@ function getErrorMessage(status: number, providerLabel: string): string {
   if (status === 429) return `${providerLabel} API 请求过于频繁，请稍后重试`;
   if (status >= 500) return `${providerLabel} 服务暂时不可用，请稍后重试`;
   return `${providerLabel} 请求失败 (${status})`;
-}
-
-function getProviderLabel(provider: Provider): string {
-  return provider === "siliconflow" ? "硅基流动" : "DeepSeek";
 }
 
 function parseErrorBody(responseText: string): string | null {
@@ -178,9 +169,8 @@ function startXhrStream(
 
     const status = xhr.status;
     if (status >= 400) {
-      const providerLabel = getProviderLabel(provider);
       const bodyMessage = parseErrorBody(xhr.responseText);
-      fail(new ApiError(bodyMessage || getErrorMessage(status, providerLabel), status, provider));
+      fail(new ApiError(bodyMessage || getErrorMessage(status, provider), status, provider));
       return;
     }
 
@@ -216,17 +206,22 @@ function startXhrStream(
   };
 }
 
-export function streamSiliconFlowKimi(
+function normalizeBaseUrl(baseUrl: string): string {
+  return baseUrl.replace(/\/+$/, "");
+}
+
+export function streamVisualRecognition(
   imageBase64: string,
   model: string,
   apiKey: string,
+  baseUrl: string,
   mode: "general" | "circuit",
   onContent: (text: string) => void,
   onDone: () => void,
   onError: (err: Error) => void
 ): CancelFn {
   if (!apiKey.trim()) {
-    onError(new ApiError("请先在设置中配置硅基流动 API Key", undefined, "siliconflow"));
+    onError(new ApiError("请先在设置中配置视觉识别 API Key", undefined, baseUrl));
     return () => {};
   }
 
@@ -271,7 +266,7 @@ export function streamSiliconFlowKimi(
   let collected = "";
 
   return startXhrStream(
-    `${SILICONFLOW_BASE}/chat/completions`,
+    `${normalizeBaseUrl(baseUrl)}/chat/completions`,
     {
       Authorization: `Bearer ${apiKey.trim()}`,
       "Content-Type": "application/json",
@@ -292,7 +287,7 @@ export function streamSiliconFlowKimi(
       max_tokens: 8192,
     }),
     {
-      provider: "siliconflow",
+      provider: baseUrl,
       disableSilenceTimeout: true,
       onData: (raw) => {
         try {
@@ -312,17 +307,18 @@ export function streamSiliconFlowKimi(
   ).abort;
 }
 
-export function streamDeepSeek(
+export function streamReasoning(
   problemText: string,
   model: string,
   apiKey: string,
+  baseUrl: string,
   onReasoning: (text: string) => void,
   onContent: (text: string) => void,
   onDone: () => void,
   onError: (err: Error) => void
 ): CancelFn {
   if (!apiKey.trim()) {
-    onError(new ApiError("请先在设置中配置 DeepSeek API Key", undefined, "deepseek"));
+    onError(new ApiError("请先在设置中配置推理模型 API Key", undefined, baseUrl));
     return () => {};
   }
 
@@ -330,7 +326,7 @@ export function streamDeepSeek(
   let content = "";
 
   return startXhrStream(
-    `${DEEPSEEK_BASE}/chat/completions`,
+    `${normalizeBaseUrl(baseUrl)}/chat/completions`,
     {
       Authorization: `Bearer ${apiKey.trim()}`,
       "Content-Type": "application/json",
@@ -356,7 +352,7 @@ export function streamDeepSeek(
       max_tokens: 8192,
     }),
     {
-      provider: "deepseek",
+      provider: baseUrl,
       disableSilenceTimeout: true,
       onData: (raw) => {
         try {
@@ -381,9 +377,10 @@ export function streamDeepSeek(
 }
 
 export async function testApiConnection(
-  provider: Provider,
+  baseUrl: string,
   apiKey: string,
-  model: string
+  model: string,
+  providerLabel: string
 ): Promise<{ success: boolean; message: string }> {
   if (!apiKey.trim()) {
     return { success: false, message: "API Key 不能为空" };
@@ -391,10 +388,7 @@ export async function testApiConnection(
 
   return new Promise((resolve) => {
     const xhr = new XMLHttpRequest();
-    const url =
-      provider === "deepseek"
-        ? `${DEEPSEEK_BASE}/chat/completions`
-        : `${SILICONFLOW_BASE}/chat/completions`;
+    const url = `${normalizeBaseUrl(baseUrl)}/chat/completions`;
 
     xhr.open("POST", url);
     xhr.setRequestHeader("Authorization", `Bearer ${apiKey.trim()}`);
@@ -403,14 +397,14 @@ export async function testApiConnection(
 
     xhr.onload = () => {
       if (xhr.status === 200) {
-        resolve({ success: true, message: `${getProviderLabel(provider)} 连接正常` });
+        resolve({ success: true, message: `${providerLabel} 连接正常` });
       } else if (xhr.status === 401 || xhr.status === 403) {
         resolve({ success: false, message: "API Key 无效或已过期" });
       } else {
         const bodyMsg = parseErrorBody(xhr.responseText);
         resolve({
           success: false,
-          message: bodyMsg || getErrorMessage(xhr.status, getProviderLabel(provider)),
+          message: bodyMsg || getErrorMessage(xhr.status, providerLabel),
         });
       }
     };
