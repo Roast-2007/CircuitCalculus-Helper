@@ -74,8 +74,9 @@ npx expo prebuild --platform android
 
 - `src/services/api.ts` 使用 XHR 增量解析流式响应
 - 处理流式问题时优先检查 chunk buffer 是否跨分片丢数据
-- Kimi 仍保留静默超时，避免真实断流时一直卡住
-- DeepSeek 默认关闭静默超时，只要没有服务端结束、HTTP 错误、网络错误或用户取消，就继续等待
+- Kimi 和 DeepSeek 默认关闭静默超时，只要没有服务端结束、HTTP 错误、网络错误或用户取消，就继续等待
+- Kimi 已启用 thinking，流式响应中 reasoning_content 解析并展示为可折叠的"推理过程"
+- Kimi 请求已拆分 system/user 消息，图片压缩为 1200px/0.65 JPEG
 - `HomeScreen.tsx` 中要避免过早释放 `processing`
 - 发起新请求前要先取消旧的 active stream
 
@@ -124,3 +125,4 @@ npx expo prebuild --platform android
 - 根目录 `CLAUDE.md` 应提交；项目内 `.claude/` 目录不应提交
 - 如果修改图标、Android 原生资源、Gradle 构建链，请优先验证 release 构建
 - 如果只改文档或忽略规则，可以不重新构建 APK，但提交前仍要检查 git status
+- 请在有代码改动完成后立刻commit，并在 commit message 里注明改动内容和相关文件路径，保持提交记录清晰有意义
