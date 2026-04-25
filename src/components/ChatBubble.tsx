@@ -85,12 +85,6 @@ export default function ChatBubble({ message, onRetry, onOpenEditor }: Props) {
 
         {message.circuit ? <CircuitPreview message={message} onOpenEditor={onOpenEditor} /> : null}
 
-        {isAI && message.content ? (
-          <View style={styles.answerContainer}>
-            <MarkdownView content={message.content} />
-          </View>
-        ) : null}
-
         {(isAI || isKimi) && message.reasoning ? (
           <View style={styles.reasoningContainer}>
             <Pressable
@@ -105,6 +99,12 @@ export default function ChatBubble({ message, onRetry, onOpenEditor }: Props) {
               <Text style={styles.reasoningToggle}> 推理过程</Text>
             </Pressable>
             {showReasoning && <Text style={styles.reasoningText}>{message.reasoning}</Text>}
+          </View>
+        ) : null}
+
+        {isAI && message.content ? (
+          <View style={styles.answerContainer}>
+            <MarkdownView content={message.content} />
           </View>
         ) : null}
 
