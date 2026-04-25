@@ -468,7 +468,6 @@ export default function HomeScreen() {
       id: kimiMessageId,
       role: "kimi",
       content: "",
-      reasoning: "",
       timestamp: Date.now(),
       status: "sending",
     });
@@ -480,7 +479,6 @@ export default function HomeScreen() {
       keys.siliconflowModel,
       keys.siliconflowKey,
       "circuit",
-      (reasoning) => updateMessage(kimiMessageId, { reasoning }),
       (content) => {
         fullDescription = content;
         updateMessage(kimiMessageId, { content });

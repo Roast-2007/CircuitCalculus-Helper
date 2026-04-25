@@ -83,7 +83,7 @@ export default function ChatBubble({ message, onRetry, onOpenEditor }: Props) {
           <Text style={styles.kimiText}>{message.content}</Text>
         ) : null}
 
-        {(isAI || isKimi) && message.reasoning ? (
+        {isAI && message.reasoning ? (
           <View style={styles.reasoningContainer}>
             <Pressable
               onPress={() => setShowReasoning(!showReasoning)}

@@ -221,7 +221,6 @@ export function streamSiliconFlowKimi(
   model: string,
   apiKey: string,
   mode: "general" | "circuit",
-  onReasoning: (text: string) => void,
   onContent: (text: string) => void,
   onDone: () => void,
   onError: (err: Error) => void
@@ -269,7 +268,6 @@ export function streamSiliconFlowKimi(
         ].join("\n")
       : "请详细描述这张图片中的数学题或电路图的所有细节。请勿遗漏任何可见信息。";
 
-  let reasoning = "";
   let collected = "";
 
   return startXhrStream(
@@ -291,7 +289,6 @@ export function streamSiliconFlowKimi(
         },
       ],
       stream: true,
-      thinking: { type: "enabled" },
       max_tokens: 8192,
     }),
     {
@@ -301,10 +298,6 @@ export function streamSiliconFlowKimi(
         try {
           const parsed = JSON.parse(raw);
           const delta = parsed.choices?.[0]?.delta;
-          if (typeof delta?.reasoning_content === "string") {
-            reasoning += delta.reasoning_content;
-            onReasoning(reasoning);
-          }
           if (typeof delta?.content === "string") {
             collected += delta.content;
             onContent(collected);
