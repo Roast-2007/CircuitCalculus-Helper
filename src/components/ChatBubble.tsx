@@ -113,7 +113,7 @@ export default function ChatBubble({ message, onRetry, onOpenEditor }: Props) {
             {isKimi ? (
               <>
                 <Text style={styles.loadingText}>识别中...</Text>
-                <Text style={styles.loadingHint}>较复杂电路可能需要 2~3 分钟，请耐心等待</Text>
+                <Text style={styles.loadingHint}>较复杂电路可能需要 3~5 分钟，请耐心等待</Text>
               </>
             ) : (
               <Text style={styles.loadingText}>思考中...</Text>

@@ -285,7 +285,7 @@ export function streamSiliconFlowKimi(
         },
       ],
       stream: true,
-      max_tokens: 4096,
+      max_tokens: 8192,
     }),
     {
       provider: "siliconflow",
