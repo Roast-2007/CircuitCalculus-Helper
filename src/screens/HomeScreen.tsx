@@ -40,9 +40,9 @@ function generateId(): string {
 async function normalizePickedImage(uri: string) {
   const result = await manipulateAsync(
     uri,
-    [{ resize: { width: 1600 } }],
+    [{ resize: { width: 1200 } }],
     {
-      compress: 0.78,
+      compress: 0.65,
       format: SaveFormat.JPEG,
       base64: true,
     }
@@ -468,6 +468,7 @@ export default function HomeScreen() {
       id: kimiMessageId,
       role: "kimi",
       content: "",
+      reasoning: "",
       timestamp: Date.now(),
       status: "sending",
     });
@@ -479,6 +480,7 @@ export default function HomeScreen() {
       keys.siliconflowModel,
       keys.siliconflowKey,
       "circuit",
+      (reasoning) => updateMessage(kimiMessageId, { reasoning }),
       (content) => {
         fullDescription = content;
         updateMessage(kimiMessageId, { content });

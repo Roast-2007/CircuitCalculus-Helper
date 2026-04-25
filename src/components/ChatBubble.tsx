@@ -85,7 +85,7 @@ export default function ChatBubble({ message, onRetry, onOpenEditor }: Props) {
 
         {message.circuit ? <CircuitPreview message={message} onOpenEditor={onOpenEditor} /> : null}
 
-        {isAI && message.reasoning ? (
+        {(isAI || isKimi) && message.reasoning ? (
           <View style={styles.reasoningContainer}>
             <Pressable
               onPress={() => setShowReasoning(!showReasoning)}
