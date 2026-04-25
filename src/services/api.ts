@@ -296,11 +296,11 @@ export function streamSiliconFlowKimi(
         try {
           const parsed = JSON.parse(raw);
           const delta = parsed.choices?.[0]?.delta;
-          if (typeof delta?.reasoning_content === "string" && delta.reasoning_content) {
+          if (typeof delta?.reasoning_content === "string") {
             reasoning += delta.reasoning_content;
             onReasoning(reasoning);
           }
-          if (typeof delta?.content === "string" && delta.content) {
+          if (typeof delta?.content === "string") {
             collected += delta.content;
             onContent(collected);
           }
@@ -359,11 +359,11 @@ export function streamDeepSeek(
         try {
           const parsed = JSON.parse(raw);
           const delta = parsed.choices?.[0]?.delta;
-          if (typeof delta?.reasoning_content === "string" && delta.reasoning_content) {
+          if (typeof delta?.reasoning_content === "string") {
             reasoning += delta.reasoning_content;
             onReasoning(reasoning);
           }
-          if (typeof delta?.content === "string" && delta.content) {
+          if (typeof delta?.content === "string") {
             content += delta.content;
             onContent(content);
           }
