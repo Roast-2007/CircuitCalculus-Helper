@@ -14,7 +14,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
-import { manipulateAsync, SaveFormat } from "expo-image-manipulator";
+import { manipulateAsync, SaveFormat, ImageResult } from "expo-image-manipulator";
 import { buildDeepSeekCircuitPrompt, createCircuitTopology } from "../services/circuitSerialize";
 import { loadKeys } from "../services/storage";
 import { streamSiliconFlowKimi, streamDeepSeek, CancelFn } from "../services/api";
@@ -40,9 +40,9 @@ function generateId(): string {
 async function normalizePickedImage(uri: string) {
   const result = await manipulateAsync(
     uri,
-    [{ resize: { width: 1200 } }],
+    [{ resize: { width: 1024 } }],
     {
-      compress: 0.65,
+      compress: 0.6,
       format: SaveFormat.JPEG,
       base64: true,
     }
