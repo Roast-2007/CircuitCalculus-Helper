@@ -18,6 +18,7 @@ type Props = {
   activeConversationId: string;
   onSelectConversation: (conversationId: string) => void;
   onClose: () => void;
+  onDeleteConversation?: (conversationId: string) => void;
 };
 
 function formatUpdatedAt(timestamp: number): string {
@@ -35,6 +36,7 @@ export default function ConversationHistoryModal({
   activeConversationId,
   onSelectConversation,
   onClose,
+  onDeleteConversation,
 }: Props) {
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
@@ -46,7 +48,13 @@ export default function ConversationHistoryModal({
               <Text style={styles.title}>历史对话</Text>
               <Text style={styles.subtitle}>点击即可恢复到对应会话</Text>
             </View>
-            <Pressable onPress={onClose} style={styles.closeButton}>
+            <Pressable
+              onPress={onClose}
+              style={({ pressed }) => [
+                styles.closeButton,
+                pressed && { opacity: 0.7 },
+              ]}
+            >
               <Ionicons name="close" size={18} color={theme.colors.mutedForeground} />
             </Pressable>
           </View>
@@ -60,7 +68,11 @@ export default function ConversationHistoryModal({
               return (
                 <Pressable
                   onPress={() => onSelectConversation(item.id)}
-                  style={[styles.item, active ? styles.activeItem : null]}
+                  style={({ pressed }) => [
+                    styles.item,
+                    active ? styles.activeItem : null,
+                    pressed && { opacity: 0.7 },
+                  ]}
                 >
                   <View style={styles.itemTextWrap}>
                     <Text style={styles.itemTitle} numberOfLines={1}>
@@ -77,6 +89,16 @@ export default function ConversationHistoryModal({
                     <View style={styles.activeBadge}>
                       <Text style={styles.activeBadgeText}>当前</Text>
                     </View>
+                  ) : onDeleteConversation ? (
+                    <Pressable
+                      onPress={() => onDeleteConversation(item.id)}
+                      style={({ pressed }) => [
+                        styles.deleteButton,
+                        pressed && { opacity: 0.7 },
+                      ]}
+                    >
+                      <Ionicons name="trash-outline" size={16} color={theme.colors.destructive} />
+                    </Pressable>
                   ) : (
                     <Ionicons name="chevron-forward" size={16} color={theme.colors.mutedForeground} />
                   )}
@@ -100,7 +122,7 @@ export default function ConversationHistoryModal({
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.22)",
+    backgroundColor: theme.colors.overlayBackdrop,
     justifyContent: "flex-end",
   },
   backdropPressable: {
@@ -193,6 +215,14 @@ const styles = StyleSheet.create({
     color: theme.colors.primaryForeground,
     fontSize: theme.fontSize.xs,
     fontWeight: theme.fontWeight.semibold,
+  },
+  deleteButton: {
+    width: 32,
+    height: 32,
+    borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.destructiveMuted,
+    justifyContent: "center",
+    alignItems: "center",
   },
   emptyState: {
     alignItems: "center",

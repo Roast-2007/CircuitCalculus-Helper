@@ -126,3 +126,8 @@ npx expo prebuild --platform android
 - 如果修改图标、Android 原生资源、Gradle 构建链，请优先验证 release 构建
 - 如果只改文档或忽略规则，可以不重新构建 APK，但提交前仍要检查 git status
 - 请在有代码改动完成后立刻commit，并在 commit message 里注明改动内容和相关文件路径，保持提交记录清晰有意义
+- 每次代码修改后必须立即 commit 并执行 release APK 构建，构建命令：
+  ```powershell
+  & 'E:\Personal Files\ocr-math\android\gradlew.bat' -p 'E:\Personal Files\ocr-math\android' assembleRelease
+  ```
+  构建产物路径：`android/app/build/outputs/apk/release/app-release.apk`

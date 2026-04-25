@@ -4,8 +4,6 @@ const DEEPSEEK_BASE = "https://api.deepseek.com/v1";
 /** If no data received for this long, abort */
 const DEFAULT_SILENCE_TIMEOUT = 120_000;
 
-type Provider = "siliconflow" | "deepseek";
-
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -18,6 +16,8 @@ export class ApiError extends Error {
 }
 
 export type CancelFn = () => void;
+
+export type Provider = "siliconflow" | "deepseek";
 
 type StreamHandlers = {
   onData: (rawJson: string) => void;
@@ -378,4 +378,52 @@ export function streamDeepSeek(
       onError,
     }
   ).abort;
+}
+
+export async function testApiConnection(
+  provider: Provider,
+  apiKey: string,
+  model: string
+): Promise<{ success: boolean; message: string }> {
+  if (!apiKey.trim()) {
+    return { success: false, message: "API Key 不能为空" };
+  }
+
+  return new Promise((resolve) => {
+    const xhr = new XMLHttpRequest();
+    const url =
+      provider === "deepseek"
+        ? `${DEEPSEEK_BASE}/chat/completions`
+        : `${SILICONFLOW_BASE}/chat/completions`;
+
+    xhr.open("POST", url);
+    xhr.setRequestHeader("Authorization", `Bearer ${apiKey.trim()}`);
+    xhr.setRequestHeader("Content-Type", "application/json");
+    xhr.timeout = 10_000;
+
+    xhr.onload = () => {
+      if (xhr.status === 200) {
+        resolve({ success: true, message: `${getProviderLabel(provider)} 连接正常` });
+      } else if (xhr.status === 401 || xhr.status === 403) {
+        resolve({ success: false, message: "API Key 无效或已过期" });
+      } else {
+        const bodyMsg = parseErrorBody(xhr.responseText);
+        resolve({
+          success: false,
+          message: bodyMsg || getErrorMessage(xhr.status, getProviderLabel(provider)),
+        });
+      }
+    };
+
+    xhr.onerror = () => resolve({ success: false, message: "网络连接失败，请检查网络" });
+    xhr.ontimeout = () => resolve({ success: false, message: "请求超时" });
+
+    xhr.send(
+      JSON.stringify({
+        model,
+        messages: [{ role: "user", content: "Hi" }],
+        max_tokens: 1,
+      })
+    );
+  });
 }

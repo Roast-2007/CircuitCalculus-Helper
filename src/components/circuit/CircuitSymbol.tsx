@@ -2,6 +2,7 @@ import React from "react";
 import Svg, { Rect, Text as SvgText } from "react-native-svg";
 import { getCircuitCatalogItem } from "../../constants/circuitCatalog";
 import { CircuitComponent } from "../../types";
+import { theme } from "../../theme";
 import StandardCircuitGraphic from "./symbols/StandardCircuitGraphic";
 
 type Props = {
@@ -42,7 +43,7 @@ export default function CircuitSymbol({ component, width, height, selected = fal
         width={selected ? 116 : 108}
         height={selected ? 116 : 108}
         rx={18}
-        fill={selected ? "#F5F9FF" : "transparent"}
+        fill={selected ? theme.colors.circuitSelectedBg : "transparent"}
         stroke={selected ? item.accentColor : "transparent"}
         strokeWidth={selected ? 3 : 0}
       />
@@ -62,7 +63,7 @@ export default function CircuitSymbol({ component, width, height, selected = fal
           x={60}
           y={selected ? 22 : 24}
           fontSize={valueFontSize}
-          fill="#1C1C1E"
+          fill={theme.colors.foreground}
           fontWeight="800"
           textAnchor="middle"
         >

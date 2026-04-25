@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { WebView, WebViewMessageEvent } from "react-native-webview";
 import { MARKDOWN_DOCUMENT_CSS } from "../constants/markdownStyles";
 import { renderMarkdownHtml } from "../services/markdownRender";
+import { theme } from "../theme";
 
 function generateHtml(content: string): string {
   const renderedHtml = renderMarkdownHtml(content);
@@ -52,6 +53,7 @@ type Props = {
 
 export default function MarkdownView({ content }: Props) {
   const [webViewHeight, setWebViewHeight] = useState(100);
+  const [webViewLoading, setWebViewLoading] = useState(true);
   const [debouncedContent, setDebouncedContent] = useState(content);
   const contentLengthRef = useRef(content.length);
 
@@ -78,6 +80,7 @@ export default function MarkdownView({ content }: Props) {
 
   useEffect(() => {
     setWebViewHeight(100);
+    setWebViewLoading(true);
   }, [html]);
 
   return (
@@ -97,7 +100,14 @@ export default function MarkdownView({ content }: Props) {
         setDisplayZoomControls={false}
         androidLayerType="hardware"
         overScrollMode="never"
+        onLoadStart={() => setWebViewLoading(true)}
+        onLoadEnd={() => setWebViewLoading(false)}
       />
+      {webViewLoading && (
+        <View style={styles.webviewLoadingOverlay}>
+          <ActivityIndicator size="small" color={theme.colors.primary} />
+        </View>
+      )}
     </View>
   );
 }
@@ -108,9 +118,20 @@ const styles = StyleSheet.create({
     minHeight: 100,
     borderRadius: 4,
     overflow: "hidden",
+    position: "relative",
   },
   webview: {
     flex: 1,
     backgroundColor: "transparent",
+  },
+  webviewLoadingOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: theme.colors.background,
   },
 });

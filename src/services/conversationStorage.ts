@@ -101,6 +101,21 @@ export function replaceConversation(
   return sortConversations(nextConversations);
 }
 
+export function deleteConversation(
+  conversations: Conversation[],
+  conversationId: string
+): { conversations: Conversation[]; newActiveId: string | null } {
+  const filtered = conversations.filter((c) => c.id !== conversationId);
+  if (filtered.length === 0) {
+    const fresh = createConversation();
+    return { conversations: [fresh], newActiveId: fresh.id };
+  }
+  return {
+    conversations: sortConversations(filtered),
+    newActiveId: filtered[0]?.id || null,
+  };
+}
+
 export function summarizeConversation(conversation: Conversation): ConversationSummary {
   return {
     id: conversation.id,

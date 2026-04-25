@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   FlatList,
   Image,
@@ -21,6 +22,7 @@ import { streamSiliconFlowKimi, streamDeepSeek, CancelFn } from "../services/api
 import { parseKimiResponse } from "../services/circuitParser";
 import {
   createConversation,
+  deleteConversation,
   loadConversationState,
   replaceConversation,
   saveConversationState,
@@ -69,6 +71,7 @@ export default function HomeScreen() {
   const activeKimiCancelRef = useRef<CancelFn | null>(null);
   const activeDeepSeekCancelRef = useRef<CancelFn | null>(null);
   const saveAlertShownRef = useRef(false);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
 
   const [reviewData, setReviewData] = useState<{
     description: string;
@@ -543,7 +546,7 @@ export default function HomeScreen() {
       const lastUserMessage = userMessages[userMessages.length - 1];
 
       if (lastUserMessage?.image) {
-        setPendingImageData({ uri: "", base64: lastUserMessage.image });
+        setPendingImageData({ uri: `data:image/jpeg;base64,${lastUserMessage.image}`, base64: lastUserMessage.image });
         setInputText(lastUserMessage.content || "");
         return;
       }
@@ -576,6 +579,26 @@ export default function HomeScreen() {
       setShowHistoryModal(false);
     },
     [activeConversationId, stopActiveInteraction]
+  );
+
+  const handleDeleteConversation = useCallback(
+    (conversationId: string) => {
+      Alert.alert("删除对话", "确定要删除这个对话吗？此操作不可撤销。", [
+        { text: "取消", style: "cancel" },
+        {
+          text: "删除",
+          style: "destructive",
+          onPress: () => {
+            const result = deleteConversation(conversations, conversationId);
+            setConversations(result.conversations);
+            if (result.newActiveId) {
+              setActiveConversationId(result.newActiveId);
+            }
+          },
+        },
+      ]);
+    },
+    [conversations]
   );
 
   const clearChat = useCallback(() => {
@@ -634,6 +657,7 @@ export default function HomeScreen() {
   if (!conversationStateReady) {
     return (
       <View style={styles.loadingState}>
+        <ActivityIndicator size="small" color={theme.colors.primary} />
         <View style={styles.loadingCircle}>
           <Ionicons name="chatbubble-ellipses-outline" size={24} color={theme.colors.primary} />
         </View>
@@ -657,18 +681,34 @@ export default function HomeScreen() {
           </Text>
         </View>
         <View style={styles.headerActions}>
-          <Pressable onPress={() => setShowHistoryModal(true)} style={styles.headerActionChip}>
+          <Pressable
+            onPress={() => setShowHistoryModal(true)}
+            style={({ pressed }) => [
+              styles.headerActionChip,
+              pressed && { opacity: 0.7 },
+            ]}
+          >
             <Ionicons name="time-outline" size={14} color={theme.colors.foreground} />
             <Text style={styles.headerActionText}>历史</Text>
           </Pressable>
           <Pressable
             onPress={handleNewConversation}
-            style={[styles.headerActionChip, styles.headerActionPrimary]}
+            style={({ pressed }) => [
+              styles.headerActionChip,
+              styles.headerActionPrimary,
+              pressed && { opacity: 0.7 },
+            ]}
           >
             <Ionicons name="add" size={14} color={theme.colors.primary} />
             <Text style={[styles.headerActionText, styles.headerActionPrimaryText]}>新对话</Text>
           </Pressable>
-          <Pressable onPress={clearChat} style={styles.clearBtn}>
+          <Pressable
+            onPress={clearChat}
+            style={({ pressed }) => [
+              styles.clearBtn,
+              pressed && { opacity: 0.7 },
+            ]}
+          >
             <Ionicons name="trash-outline" size={16} color={theme.colors.mutedForeground} />
           </Pressable>
         </View>
@@ -706,23 +746,62 @@ export default function HomeScreen() {
           </View>
         }
         onContentSizeChange={handleContentSizeChange}
+        onScroll={(e) => {
+          const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
+          const distanceFromBottom =
+            contentSize.height - layoutMeasurement.height - contentOffset.y;
+          setShowScrollToBottom(distanceFromBottom > 200);
+        }}
+        scrollEventThrottle={16}
       />
+
+      {showScrollToBottom && (
+        <Pressable
+          onPress={scrollToBottom}
+          style={({ pressed }) => [
+            styles.scrollToBottomBtn,
+            pressed && { opacity: 0.7 },
+          ]}
+        >
+          <Ionicons name="chevron-down" size={20} color={theme.colors.primaryForeground} />
+        </Pressable>
+      )}
 
       <View style={styles.inputBar}>
         {pendingImageData ? (
           <View style={styles.pendingImageContainer}>
             <Image source={{ uri: pendingImageData.uri }} style={styles.pendingImage} />
-            <Pressable onPress={cancelPendingImage} style={styles.removeImageBtn}>
+            <Pressable
+              onPress={cancelPendingImage}
+              style={({ pressed }) => [
+                styles.removeImageBtn,
+                pressed && { opacity: 0.7 },
+              ]}
+            >
               <Ionicons name="close" size={10} color="#fff" />
             </Pressable>
           </View>
         ) : null}
 
         <View style={styles.inputRow}>
-          <Pressable onPress={pickFromCamera} style={styles.iconBtn} disabled={processing}>
+          <Pressable
+            onPress={pickFromCamera}
+            style={({ pressed }) => [
+              styles.iconBtn,
+              pressed && { opacity: 0.7 },
+            ]}
+            disabled={processing}
+          >
             <Ionicons name="camera-outline" size={20} color={theme.colors.mutedForeground} />
           </Pressable>
-          <Pressable onPress={pickFromGallery} style={styles.iconBtn} disabled={processing}>
+          <Pressable
+            onPress={pickFromGallery}
+            style={({ pressed }) => [
+              styles.iconBtn,
+              pressed && { opacity: 0.7 },
+            ]}
+            disabled={processing}
+          >
             <Ionicons name="image-outline" size={20} color={theme.colors.mutedForeground} />
           </Pressable>
           <TextInput
@@ -737,11 +816,12 @@ export default function HomeScreen() {
           />
           <Pressable
             onPress={handleSend}
-            style={[
+            style={({ pressed }) => [
               styles.sendBtn,
               (!inputText.trim() && !pendingImageData) || processing
                 ? styles.sendBtnDisabled
                 : null,
+              pressed && { opacity: 0.7 },
             ]}
             disabled={(!inputText.trim() && !pendingImageData) || processing}
           >
@@ -756,6 +836,7 @@ export default function HomeScreen() {
         activeConversationId={activeConversationId}
         onSelectConversation={handleSelectConversation}
         onClose={() => setShowHistoryModal(false)}
+        onDeleteConversation={handleDeleteConversation}
       />
 
       <Modal
@@ -783,7 +864,10 @@ export default function HomeScreen() {
           <View style={styles.reviewContainer}>
             <View style={styles.reviewHeader}>
               <Text style={styles.reviewTitle}>确认题目信息</Text>
-              <Pressable onPress={handleReviewCancel}>
+              <Pressable
+                onPress={handleReviewCancel}
+                style={({ pressed }) => [pressed && { opacity: 0.7 }]}
+              >
                 <Text style={styles.reviewCancelText}>取消</Text>
               </Pressable>
             </View>
@@ -810,12 +894,24 @@ export default function HomeScreen() {
               textAlignVertical="top"
             />
 
-            <Pressable onPress={handleSwitchToCircuitMode} style={styles.switchToCircuitBtn}>
+            <Pressable
+              onPress={handleSwitchToCircuitMode}
+              style={({ pressed }) => [
+                styles.switchToCircuitBtn,
+                pressed && { opacity: 0.7 },
+              ]}
+            >
               <Ionicons name="git-network-outline" size={16} color={theme.colors.primary} />
               <Text style={styles.switchToCircuitBtnText}> 编辑电路拓扑</Text>
             </Pressable>
 
-            <Pressable onPress={handleTextConfirm} style={styles.reviewConfirmBtn}>
+            <Pressable
+              onPress={handleTextConfirm}
+              style={({ pressed }) => [
+                styles.reviewConfirmBtn,
+                pressed && { opacity: 0.7 },
+              ]}
+            >
               <Text style={styles.reviewConfirmBtnText}>确认并提交 DeepSeek 解答</Text>
             </Pressable>
           </View>
@@ -1116,5 +1212,18 @@ const styles = StyleSheet.create({
     fontSize: theme.fontSize.base,
     color: theme.colors.primary,
     fontWeight: theme.fontWeight.medium,
+  },
+  scrollToBottomBtn: {
+    position: "absolute",
+    right: theme.spacing.lg,
+    bottom: 80,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: theme.colors.primary,
+    justifyContent: "center",
+    alignItems: "center",
+    ...theme.shadow.md,
+    zIndex: 10,
   },
 });

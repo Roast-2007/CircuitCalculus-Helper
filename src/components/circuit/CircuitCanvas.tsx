@@ -80,7 +80,10 @@ export default function CircuitCanvas({
           <View style={styles.toolbarActions}>
             <Pressable
               onPress={() => setScale((current) => clampScale(current - SCALE_STEP))}
-              style={styles.iconButton}
+              style={({ pressed }) => [
+                styles.iconButton,
+                pressed && { opacity: 0.7 },
+              ]}
             >
               <Ionicons name="remove" size={16} color={theme.colors.foreground} />
             </Pressable>
@@ -90,13 +93,19 @@ export default function CircuitCanvas({
                 horizontalScrollRef.current?.scrollTo({ x: 0, animated: true });
                 verticalScrollRef.current?.scrollTo({ y: 0, animated: true });
               }}
-              style={styles.fitButton}
+              style={({ pressed }) => [
+                styles.fitButton,
+                pressed && { opacity: 0.7 },
+              ]}
             >
               <Text style={styles.fitButtonText}>适配</Text>
             </Pressable>
             <Pressable
               onPress={() => setScale((current) => clampScale(current + SCALE_STEP))}
-              style={styles.iconButton}
+              style={({ pressed }) => [
+                styles.iconButton,
+                pressed && { opacity: 0.7 },
+              ]}
             >
               <Ionicons name="add" size={16} color={theme.colors.foreground} />
             </Pressable>
@@ -141,7 +150,7 @@ export default function CircuitCanvas({
                     <Path
                       key={wire.id}
                       d={d}
-                      stroke="#5E6C84"
+                      stroke={theme.colors.circuitWire}
                       strokeWidth={compact ? 2 : 2.4}
                       fill="none"
                       strokeLinejoin="round"
@@ -163,14 +172,14 @@ export default function CircuitCanvas({
                           cx={placement.x}
                           cy={placement.y}
                           r={isTerminal ? (compact ? 5 : 6) : isGround ? 5 : 4}
-                          fill={isGround ? "#546E7A" : isTerminal ? "#111111" : "#111111"}
+                          fill={isGround ? theme.colors.circuitGround : isTerminal ? theme.colors.circuitNode : theme.colors.circuitNode}
                         />
                         {label ? (
                           <SvgText
                             x={placement.x + (isTerminal ? 14 : 8)}
                             y={placement.y + (isTerminal ? 4 : -8)}
                             fontSize={compact ? 10 : isTerminal ? 15 : 11}
-                            fill={isTerminal ? "#111111" : "#536070"}
+                            fill={isTerminal ? theme.colors.circuitNode : theme.colors.circuitNodeLabel}
                             fontWeight={isTerminal ? "700" : "600"}
                           >
                             {truncateLabel(label, compact)}
@@ -194,7 +203,7 @@ export default function CircuitCanvas({
                     cx={placement.x}
                     cy={placement.y}
                     r={compact ? 2.5 : 3}
-                    fill="#8894A7"
+                    fill={theme.colors.circuitUnconnectedTerminal}
                   />
                 ))}
               </Svg>
@@ -217,7 +226,7 @@ export default function CircuitCanvas({
                     <Pressable
                       key={component.id}
                       onPress={() => onSelectComponent?.(component.id)}
-                      style={[
+                      style={({ pressed }) => [
                         styles.componentCard,
                         {
                           left: placement.x * scale,
@@ -225,6 +234,7 @@ export default function CircuitCanvas({
                           width: placement.width * scale,
                           height: placement.height * scale,
                         },
+                        pressed && { opacity: 0.7 },
                       ]}
                     >
                       <CircuitSymbol
@@ -264,7 +274,7 @@ export default function CircuitCanvas({
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: "#FBFCFF",
+    backgroundColor: theme.colors.circuitBg,
     borderRadius: theme.radius.xl,
     borderWidth: 1,
     borderColor: theme.colors.border,
@@ -280,7 +290,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.spacing.md,
     paddingTop: theme.spacing.sm,
     paddingBottom: theme.spacing.xs,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: theme.colors.circuitCardBg,
     borderBottomWidth: 1,
     borderBottomColor: theme.colors.border,
   },
@@ -331,7 +341,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   viewport: {
-    backgroundColor: "#FBFCFF",
+    backgroundColor: theme.colors.circuitBg,
   },
   compactViewport: {
     height: 188,
@@ -354,7 +364,7 @@ const styles = StyleSheet.create({
     borderTopColor: theme.colors.border,
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.sm,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: theme.colors.circuitCardBg,
   },
   summaryTitle: {
     fontSize: theme.fontSize.sm,

@@ -282,7 +282,10 @@ export default function CircuitEditor({ topology, onConfirm, onCancel }: Props) 
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>编辑电路拓扑</Text>
-        <Pressable onPress={onCancel}>
+        <Pressable
+          onPress={onCancel}
+          style={({ pressed }) => [pressed && { opacity: 0.7 }]}
+        >
           <Text style={styles.cancelHeaderBtn}>取消</Text>
         </Pressable>
       </View>
@@ -290,7 +293,13 @@ export default function CircuitEditor({ topology, onConfirm, onCancel }: Props) 
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.sectionHeaderRow}>
           <Text style={styles.sectionTitle}>电路连接可视化</Text>
-          <Pressable onPress={relayoutDiagram} style={styles.relayoutButton}>
+          <Pressable
+            onPress={relayoutDiagram}
+            style={({ pressed }) => [
+              styles.relayoutButton,
+              pressed && { opacity: 0.7 },
+            ]}
+          >
             <Ionicons name="refresh-outline" size={14} color={theme.colors.primary} />
             <Text style={styles.relayoutButtonText}> 重新布局</Text>
           </Pressable>
@@ -321,7 +330,14 @@ export default function CircuitEditor({ topology, onConfirm, onCancel }: Props) 
         <Text style={styles.sectionTitle}>添加元件</Text>
         <View style={styles.paletteGrid}>
           {CIRCUIT_COMPONENT_KIND_OPTIONS.filter((kind) => kind !== "unknown").map((kind) => (
-            <Pressable key={kind} onPress={() => addComponent(kind)} style={styles.paletteItem}>
+            <Pressable
+              key={kind}
+              onPress={() => addComponent(kind)}
+              style={({ pressed }) => [
+                styles.paletteItem,
+                pressed && { opacity: 0.7 },
+              ]}
+            >
               <Text style={styles.paletteItemText}>{CIRCUIT_COMPONENT_LABELS[kind]}</Text>
             </Pressable>
           ))}
@@ -333,9 +349,10 @@ export default function CircuitEditor({ topology, onConfirm, onCancel }: Props) 
             <Pressable
               key={component.id}
               onPress={() => setSelectedComponentId(component.id)}
-              style={[
+              style={({ pressed }) => [
                 styles.componentListItem,
                 selectedComponent?.id === component.id ? styles.componentListItemActive : null,
+                pressed && { opacity: 0.7 },
               ]}
             >
               <Text style={styles.componentListName}>{component.name}</Text>
@@ -348,7 +365,13 @@ export default function CircuitEditor({ topology, onConfirm, onCancel }: Props) 
           <View style={styles.inspectorCard}>
             <View style={styles.inspectorHeader}>
               <Text style={styles.inspectorTitle}>Inspector · {selectedComponent.name}</Text>
-              <Pressable onPress={removeSelectedComponent} style={styles.removeBtn}>
+              <Pressable
+                onPress={removeSelectedComponent}
+                style={({ pressed }) => [
+                  styles.removeBtn,
+                  pressed && { opacity: 0.7 },
+                ]}
+              >
                 <Ionicons name="trash-outline" size={14} color={theme.colors.destructive} />
               </Pressable>
             </View>
@@ -391,9 +414,10 @@ export default function CircuitEditor({ topology, onConfirm, onCancel }: Props) 
                       orientation: o,
                     }))
                   }
-                  style={[
+                  style={({ pressed }) => [
                     styles.toggleBtn,
                     (selectedComponent.orientation || "auto") === o ? styles.toggleBtnActive : null,
+                    pressed && { opacity: 0.7 },
                   ]}
                 >
                   <Text
@@ -452,9 +476,10 @@ export default function CircuitEditor({ topology, onConfirm, onCancel }: Props) 
                     <Pressable
                       key={type}
                       onPress={() => updateControl("controlType", type)}
-                      style={[
+                      style={({ pressed }) => [
                         styles.toggleBtn,
                         (selectedControl?.controlType || "voltage") === type ? styles.toggleBtnActive : null,
+                        pressed && { opacity: 0.7 },
                       ]}
                     >
                       <Text
@@ -512,10 +537,22 @@ export default function CircuitEditor({ topology, onConfirm, onCancel }: Props) 
         />
 
         <View style={styles.actionRow}>
-          <Pressable onPress={onCancel} style={styles.cancelBtn}>
+          <Pressable
+            onPress={onCancel}
+            style={({ pressed }) => [
+              styles.cancelBtn,
+              pressed && { opacity: 0.7 },
+            ]}
+          >
             <Text style={styles.cancelBtnText}>取消</Text>
           </Pressable>
-          <Pressable onPress={handleConfirm} style={styles.confirmBtn}>
+          <Pressable
+            onPress={handleConfirm}
+            style={({ pressed }) => [
+              styles.confirmBtn,
+              pressed && { opacity: 0.7 },
+            ]}
+          >
             <Text style={styles.confirmBtnText}>确认并提交解答</Text>
           </Pressable>
         </View>
@@ -599,7 +636,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   issueWarning: {
-    color: "#B26A00",
+    color: theme.colors.warningText,
   },
   issueError: {
     color: theme.colors.destructive,

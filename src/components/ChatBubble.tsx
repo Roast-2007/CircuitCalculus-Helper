@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { CircuitTopology, Message } from "../types";
 import { theme } from "../theme";
@@ -20,7 +20,10 @@ function CircuitPreview({ message, onOpenEditor }: { message: Message; onOpenEdi
   return (
     <Pressable
       onPress={() => onOpenEditor?.(message.circuit!)}
-      style={styles.circuitPreviewPressable}
+      style={({ pressed }) => [
+        styles.circuitPreviewPressable,
+        pressed && { opacity: 0.7 },
+      ]}
     >
       <View style={styles.circuitPreview}>
         <View style={styles.circuitPreviewHeader}>
@@ -51,10 +54,10 @@ export default function ChatBubble({ message, onRetry, onOpenEditor }: Props) {
     avatarColor = theme.colors.foreground;
   } else if (isKimi) {
     avatarLabel = "K";
-    avatarColor = "#9C27B0";
+    avatarColor = theme.colors.kimiAccent;
   } else if (isCircuit) {
     avatarLabel = "C";
-    avatarColor = "#FF9800";
+    avatarColor = theme.colors.circuitAccent;
   }
 
   return (
@@ -87,7 +90,10 @@ export default function ChatBubble({ message, onRetry, onOpenEditor }: Props) {
           <View style={styles.reasoningContainer}>
             <Pressable
               onPress={() => setShowReasoning(!showReasoning)}
-              style={styles.reasoningHeader}
+              style={({ pressed }) => [
+                styles.reasoningHeader,
+                pressed && { opacity: 0.7 },
+              ]}
             >
               <Ionicons
                 name={showReasoning ? "chevron-down" : "chevron-forward"}
@@ -110,6 +116,7 @@ export default function ChatBubble({ message, onRetry, onOpenEditor }: Props) {
 
         {isLoading ? (
           <View style={styles.loadingContainer}>
+            <ActivityIndicator size="small" color={theme.colors.primary} />
             {isKimi ? (
               <>
                 <Text style={styles.loadingText}>识别中...</Text>
@@ -125,7 +132,13 @@ export default function ChatBubble({ message, onRetry, onOpenEditor }: Props) {
           <View style={styles.errorContainer}>
             <Text style={styles.errorText}>{message.content || "请求失败"}</Text>
             {onRetry && (
-              <Pressable onPress={() => onRetry(message)} style={styles.retryBtn}>
+              <Pressable
+                onPress={() => onRetry(message)}
+                style={({ pressed }) => [
+                  styles.retryBtn,
+                  pressed && { opacity: 0.7 },
+                ]}
+              >
                 <Text style={styles.retryText}>重试</Text>
               </Pressable>
             )}
@@ -179,7 +192,7 @@ const styles = StyleSheet.create({
   roleLabel: {
     fontSize: theme.fontSize.xs,
     fontWeight: theme.fontWeight.semibold,
-    color: "#9C27B0",
+    color: theme.colors.kimiAccent,
     marginBottom: theme.spacing.xs,
     letterSpacing: 0.3,
   },
@@ -216,7 +229,7 @@ const styles = StyleSheet.create({
   circuitPreviewTitle: {
     fontSize: theme.fontSize.sm,
     fontWeight: theme.fontWeight.semibold,
-    color: "#7B1FA2",
+    color: theme.colors.circuitTitle,
   },
   circuitPreviewHint: {
     fontSize: theme.fontSize.xs,
@@ -256,6 +269,8 @@ const styles = StyleSheet.create({
   },
   loadingContainer: {
     paddingVertical: theme.spacing.md,
+    alignItems: "center",
+    gap: theme.spacing.xs,
   },
   loadingText: { fontSize: theme.fontSize.base, color: theme.colors.mutedForeground },
   loadingHint: {
@@ -290,6 +305,6 @@ const styles = StyleSheet.create({
     textAlign: "right",
   },
   userTimestamp: {
-    color: "rgba(255,255,255,0.7)",
+    color: theme.colors.userTimestamp,
   },
 });

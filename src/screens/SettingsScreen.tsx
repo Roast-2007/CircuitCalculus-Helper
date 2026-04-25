@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
@@ -13,6 +14,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { ApiKeys, DEFAULT_DEEPSEEK_MODEL, DEFAULT_SILICONFLOW_MODEL } from "../types";
 import { loadKeys, saveKeys } from "../services/storage";
+import { testApiConnection, Provider } from "../services/api";
 import { theme } from "../theme";
 
 export default function SettingsScreen() {
@@ -24,6 +26,7 @@ export default function SettingsScreen() {
   });
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [testingProvider, setTestingProvider] = useState<Provider | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -49,9 +52,27 @@ export default function SettingsScreen() {
     }
   }, [keys]);
 
+  const handleTestConnection = useCallback(
+    async (provider: Provider) => {
+      setTestingProvider(provider);
+      const key =
+        provider === "deepseek" ? keys.deepseekKey : keys.siliconflowKey;
+      const model =
+        provider === "deepseek" ? keys.deepseekModel : keys.siliconflowModel;
+      const result = await testApiConnection(provider, key, model);
+      setTestingProvider(null);
+      Alert.alert(
+        result.success ? "连接成功" : "连接失败",
+        result.message
+      );
+    },
+    [keys]
+  );
+
   if (!loaded) {
     return (
       <View style={styles.loadingContainer}>
+        <ActivityIndicator size="small" color={theme.colors.primary} />
         <Text style={styles.loadingText}>加载中...</Text>
       </View>
     );
@@ -94,6 +115,19 @@ export default function SettingsScreen() {
             autoCapitalize="none"
             autoCorrect={false}
           />
+          <Pressable
+            onPress={() => handleTestConnection("deepseek")}
+            style={({ pressed }) => [
+              styles.testBtn,
+              testingProvider === "deepseek" && styles.testBtnDisabled,
+              pressed && { opacity: 0.7 },
+            ]}
+            disabled={testingProvider === "deepseek"}
+          >
+            <Text style={styles.testBtnText}>
+              {testingProvider === "deepseek" ? "测试中..." : "测试 DeepSeek 连接"}
+            </Text>
+          </Pressable>
         </View>
 
         {/* SiliconFlow Section */}
@@ -120,6 +154,19 @@ export default function SettingsScreen() {
             autoCapitalize="none"
             autoCorrect={false}
           />
+          <Pressable
+            onPress={() => handleTestConnection("siliconflow")}
+            style={({ pressed }) => [
+              styles.testBtn,
+              testingProvider === "siliconflow" && styles.testBtnDisabled,
+              pressed && { opacity: 0.7 },
+            ]}
+            disabled={testingProvider === "siliconflow"}
+          >
+            <Text style={styles.testBtnText}>
+              {testingProvider === "siliconflow" ? "测试中..." : "测试硅基流动连接"}
+            </Text>
+          </Pressable>
         </View>
 
         {/* Info */}
@@ -146,7 +193,11 @@ export default function SettingsScreen() {
         {/* Save Button */}
         <Pressable
           onPress={handleSave}
-          style={[styles.saveBtn, saving && styles.saveBtnDisabled]}
+          style={({ pressed }) => [
+            styles.saveBtn,
+            saving && styles.saveBtnDisabled,
+            pressed && { opacity: 0.7 },
+          ]}
           disabled={saving}
         >
           <Text style={styles.saveBtnText}>{saving ? "保存中..." : "保存配置"}</Text>
@@ -266,6 +317,19 @@ const styles = StyleSheet.create({
   saveBtnText: {
     color: theme.colors.primaryForeground,
     fontSize: theme.fontSize.base,
+    fontWeight: theme.fontWeight.semibold,
+  },
+  testBtn: {
+    backgroundColor: theme.colors.primaryMuted,
+    borderRadius: theme.radius.lg,
+    paddingVertical: 10,
+    alignItems: "center",
+    marginTop: theme.spacing.sm,
+  },
+  testBtnDisabled: { opacity: 0.5 },
+  testBtnText: {
+    color: theme.colors.primary,
+    fontSize: theme.fontSize.sm,
     fontWeight: theme.fontWeight.semibold,
   },
 });
