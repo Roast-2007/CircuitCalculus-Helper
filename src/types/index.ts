@@ -189,4 +189,4 @@ export type CircuitValidationIssue = {
 };
 
 export const DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-pro";
-export const DEFAULT_SILICONFLOW_MODEL = "Pro/moonshotai/Kimi-K2.6";
+export const DEFAULT_SILICONFLOW_MODEL = "Pro/moonshotai/Kimi-K2.5";
