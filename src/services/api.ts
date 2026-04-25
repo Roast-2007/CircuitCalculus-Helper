@@ -234,15 +234,23 @@ export function streamSiliconFlowKimi(
   const systemPrompt =
     mode === "circuit"
       ? [
-          "请识别图片，严格按以下步骤操作。",
-          "第一步：判断图片类型。",
-          "  - 如果是电路图/电路题（包含电路符号、元件、连线、节点等），则 isCircuit 设为 true。",
-          "  - 否则 isCircuit 设为 false。",
-          "第二步：如果是电路图，用自然语言描述电路结构、节点、元件和连接关系。",
-          "  如果是非电路内容，提取并整理图中的题目文字、公式、要求等。",
-          "第三步：必须输出一个 ```json 代码块，内容如下：",
+          "你是一位资深电路工程师和题目分析专家。请识别图片并输出结构化结果。",
           "",
-          "电路图（isCircuit: true）：",
+          "【识别流程】",
+          "1. 判断图片类型：",
+          "   - 若包含电路符号、元件、连线、节点 → isCircuit = true",
+          "   - 若为数学题、文字题、公式等非电路内容 → isCircuit = false",
+          "2. 详细描述电路结构、节点、元件和连接关系；非电路内容则提取题目文字和公式。",
+          "3. 输出一个 ```json 代码块（格式见下方）。",
+          "",
+          "【分析原则】",
+          "- 对于复杂电路，请逐个元件、逐个节点地扫描和记录，不遗漏任何可见元素。",
+          "- 相信你的第一次判断，不要反复质疑或修正。以你最初看到的电路结构为准。",
+          "- 对于不确定方向的元件，根据电路图中实际绘制方向推断；无法确定时填写 orientation: \"auto\"。",
+          "- 电压源/电流源若竖着画，orientation 必须填 \"vertical\"。",
+          "- 受控源（vcvs / vccs / ccvs / cccs）必须保留完整端子和控制关系，不能省略。",
+          "",
+          "【JSON 格式 —— 电路图（isCircuit: true）】",
           "{",
           '  "isCircuit": true,',
           '  "nodes": [{ id, label, kind }],',
@@ -251,11 +259,8 @@ export function streamSiliconFlowKimi(
           '  "controls": [{ sourceComponentId, controlType, positiveNodeId, negativeNodeId, controllingComponentId }]',
           "}",
           "  kind 可选：resistor, capacitor, inductor, voltage_source, current_source, ground, diode, bjt, mosfet, opamp, transformer, switch, probe, vcvs, vccs, ccvs, cccs, unknown。",
-          "  terminals 必须写出端子名称；多端器件和受控源必须保留完整端子和控制关系。",
-          "  orientation：horizontal（水平）/ vertical（垂直）/ auto（不确定）。",
-          "  电压源/电流源若竖着画，orientation 必须填 vertical。",
           "",
-          "非电路内容（isCircuit: false）：",
+          "【JSON 格式 —— 非电路内容（isCircuit: false）】",
           "{",
           '  "isCircuit": false,',
           '  "extractedText": "提取整理后的题目内容..."',
@@ -343,7 +348,12 @@ export function streamDeepSeek(
         {
           role: "system",
           content:
-            "你是一个高等数学和电路分析专家。请仔细解答用户的问题，优先使用结构化电路数据进行分析，并给出详细的解题步骤和最终答案。对于数学题，请使用 LaTeX 格式（$...$ 行内公式，$$...$$ 独立公式）展示公式。对于电路题，请明确说明采用的等效模型、节点/网孔关系、受控源处理方式和最终结论。在给出最终答案前，请先进行逐步推理。",
+            "你是高等数学与电路分析领域的专家。解答用户问题时，请遵循以下原则：\n" +
+            "1. 逐步推理，条理清晰，每步有明确结论。\n" +
+            "2. 若提供了结构化电路数据，优先基于节点/网孔、等效模型、受控源关系进行分析。\n" +
+            "3. 相信自己的判断，遇到复杂问题时逐个拆解，不反复推翻已有结论。\n" +
+            "4. 数学题使用 LaTeX 格式（$...$ 行内公式，$$...$$ 独立公式）展示公式。\n" +
+            "5. 最终答案明确给出，推理过程在前、结论在后。",
         },
         { role: "user", content: problemText },
       ],
