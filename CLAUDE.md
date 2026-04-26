@@ -36,10 +36,10 @@ npx expo run:android
 
 #### Android release APK
 
-在 Windows / PowerShell 下优先用这个命令，避免路径里空格导致 `gradlew.bat` 调用失败：
+用相对路径调用 gradlew.bat，管道 `tail` 只看尾部输出，避免上下文被撑爆：
 
-```powershell
-& 'E:\Personal Files\ocr-math\android\gradlew.bat' -p 'E:\Personal Files\ocr-math\android' assembleRelease
+```bash
+"./android/gradlew.bat" -p "./android" assembleRelease 2>&1 | tail -20
 ```
 
 release 产物路径：
