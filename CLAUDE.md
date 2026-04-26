@@ -54,13 +54,16 @@ E:\Personal Files\ocr-math\android\app\build\outputs\apk\release\app-release.apk
 
 当用户要求”build 两版放桌面”时：
 
-1. 如果用户未在上下文中提供 API Key，使用 AskUserQuestion 索取硅基流动和 DeepSeek 的 key
+1. 如果用户未在上下文中提供 API Key，使用 AskUserQuestion 索取硅基流动、DeepSeek 和阿里云百炼的 key
 2. 修改 `src/services/embeddedKeys.ts`：
    - `EMBEDDED.visual.apiKey` 填入硅基流动 key
    - `EMBEDDED.reasoning.apiKey` 填入 DeepSeek key
+   - `EMBEDDED_API_KEYS.siliconflow` 填入硅基流动 key
+   - `EMBEDDED_API_KEYS.deepseek` 填入 DeepSeek key
+   - `EMBEDDED_API_KEYS.alibaba_bailian` 填入阿里云百炼 key
    - `getEmbeddedSettings()` 返回 `EMBEDDED`
 3. 执行 `assembleRelease`，产物复制到 `C:\Users\wangh\Desktop\ocr-math-with-keys.apk`
-4. 恢复 `embeddedKeys.ts`（apiKey 清空，返回 `null`）
+4. 恢复 `embeddedKeys.ts`（所有 apiKey 清空，`getEmbeddedSettings` 返回 `null`，`EMBEDDED_API_KEYS` 全部清空）
 5. 再次执行 `assembleRelease`，产物复制到 `C:\Users\wangh\Desktop\ocr-math-no-keys.apk`
 6. `embeddedKeys.ts` 保持干净状态，不提交 key
 
