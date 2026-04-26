@@ -1,7 +1,9 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Animated,
+  Modal,
+  PanResponder,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   useWindowDimensions,
@@ -22,22 +24,20 @@ type Props = {
   selectedComponentId?: string;
   onSelectComponent?: (componentId: string) => void;
   compact?: boolean;
+  hideChrome?: boolean;
 };
 
 const COMPACT_SCALE = 0.62;
-const DEFAULT_SCALE = 1;
-const DETAIL_SCALE = 1.45;
-const MIN_SCALE = 0.55;
-const MAX_SCALE = 2.6;
-const SCALE_STEP = 0.2;
 
 function clampScale(value: number) {
+  const MIN_SCALE = 0.55;
+  const MAX_SCALE = 2.6;
   return Math.min(MAX_SCALE, Math.max(MIN_SCALE, value));
 }
 
 function fitScale(width: number, height: number, maxWidth: number, maxHeight: number) {
   if (!width || !height || !maxWidth || !maxHeight) {
-    return DEFAULT_SCALE;
+    return 1;
   }
 
   return clampScale(Math.min(maxWidth / width, maxHeight / height, 1));
@@ -57,24 +57,60 @@ export default function CircuitCanvas({
   selectedComponentId,
   onSelectComponent,
   compact = false,
+  hideChrome = false,
 }: Props) {
   const layout = useMemo(() => ensureCircuitLayout(topology), [topology]);
-  const { width: windowWidth } = useWindowDimensions();
-  const horizontalScrollRef = useRef<ScrollView>(null);
-  const verticalScrollRef = useRef<ScrollView>(null);
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const viewportWidth = Math.max(220, windowWidth - (compact ? 112 : 40));
-  const viewportHeight = compact ? 190 : 320;
+  const viewportHeight = hideChrome ? Math.max(200, windowHeight - 120) : compact ? 190 : 320;
   const initialScale = compact
     ? COMPACT_SCALE
     : fitScale(layout.width, layout.height, viewportWidth - 24, viewportHeight - 24);
-  const [scale, setScale] = useState(initialScale);
+
+  const contentWidth = layout.width * initialScale;
+  const contentHeight = layout.height * initialScale;
+
+  const [fullscreenVisible, setFullscreenVisible] = useState(false);
+
+  const panX = useRef(new Animated.Value(0)).current;
+  const panY = useRef(new Animated.Value(0)).current;
+  const lastPanOffset = useRef({ x: 0, y: 0 });
+
+  const resetPan = useCallback(() => {
+    panX.setValue(0);
+    panY.setValue(0);
+    panX.setOffset(0);
+    panY.setOffset(0);
+    lastPanOffset.current = { x: 0, y: 0 };
+  }, [panX, panY]);
 
   useEffect(() => {
-    setScale(initialScale);
-  }, [initialScale]);
+    resetPan();
+  }, [initialScale, resetPan]);
 
-  const contentWidth = layout.width * scale;
-  const contentHeight = layout.height * scale;
+  const panResponder = useMemo(() => PanResponder.create({
+    onStartShouldSetPanResponder: () => false,
+    onMoveShouldSetPanResponder: (_e, gs) => Math.abs(gs.dx) > 2 || Math.abs(gs.dy) > 2,
+    onPanResponderGrant: () => {
+      panX.setOffset(lastPanOffset.current.x);
+      panY.setOffset(lastPanOffset.current.y);
+      panX.setValue(0);
+      panY.setValue(0);
+    },
+    onPanResponderMove: Animated.event(
+      [null, { dx: panX, dy: panY }],
+      { useNativeDriver: false }
+    ),
+    onPanResponderRelease: (_e, gs) => {
+      lastPanOffset.current = {
+        x: lastPanOffset.current.x + gs.dx,
+        y: lastPanOffset.current.y + gs.dy,
+      };
+      panX.flattenOffset();
+      panY.flattenOffset();
+    },
+  }), [panX, panY]);
+
   const summaryLines = topology.components.slice(0, compact ? 0 : 4);
   const connectedTerminalKeys = useMemo(
     () => new Set(topology.connections.map((connection) => terminalKey(connection.componentId, connection.terminalId))),
@@ -88,6 +124,10 @@ export default function CircuitCanvas({
     () => new Map(topology.nodes.map((node) => [node.id, node])),
     [topology.nodes]
   );
+  const connectedNodeIds = useMemo(
+    () => new Set(topology.connections.map((c) => c.nodeId)),
+    [topology.connections]
+  );
   const wirePaths = useMemo(
     () => layout.wirePlacements.map((wire) => ({
       wire,
@@ -98,27 +138,120 @@ export default function CircuitCanvas({
     [layout.wirePlacements]
   );
 
+  const renderCircuitContent = () => (
+    <View style={{ width: Math.max(contentWidth, viewportWidth), height: Math.max(contentHeight, viewportHeight) }}>
+      <Svg width={contentWidth} height={contentHeight} viewBox={`0 0 ${layout.width} ${layout.height}`}>
+        {wirePaths.map(({ wire, d }) => {
+          const isSelectedWire = selectedComponentId
+            ? wire.componentId === selectedComponentId
+            : false;
+          return (
+            <Path
+              key={wire.id}
+              d={d}
+              stroke={isSelectedWire ? theme.colors.primary : theme.colors.circuitWire}
+              strokeWidth={isSelectedWire ? (compact ? 3 : 3.8) : compact ? 2 : 2.4}
+              fill="none"
+              strokeLinejoin="round"
+              strokeLinecap="round"
+            />
+          );
+        })}
+
+        {layout.nodePlacements
+          .filter((placement) => placement.role !== "hidden" && connectedNodeIds.has(placement.nodeId))
+          .map((placement) => {
+            const node = nodeMap.get(placement.nodeId);
+            const isGround = node?.kind === "ground";
+            const isTerminal = placement.role === "terminal";
+            const label = placement.label || node?.label;
+            return (
+              <React.Fragment key={`${placement.nodeId}:${placement.x}:${placement.y}`}>
+                <Circle
+                  cx={placement.x}
+                  cy={placement.y}
+                  r={isTerminal ? (compact ? 5 : 6) : isGround ? 5 : 4}
+                  fill={isGround ? theme.colors.circuitGround : isTerminal ? theme.colors.circuitNode : theme.colors.circuitNode}
+                />
+                {label ? (
+                  <SvgText
+                    x={placement.x + (isTerminal ? 14 : 8)}
+                    y={placement.y + (isTerminal ? 4 : -8)}
+                    fontSize={compact ? 10 : isTerminal ? 15 : 11}
+                    fill={isTerminal ? theme.colors.circuitNode : theme.colors.circuitNodeLabel}
+                    fontWeight={isTerminal ? "700" : "600"}
+                  >
+                    {truncateLabel(label, compact)}
+                  </SvgText>
+                ) : null}
+              </React.Fragment>
+            );
+          })}
+
+        {layout.terminalPlacements
+          .filter((placement) => !connectedTerminalKeys.has(terminalKey(placement.componentId, placement.terminalId)))
+          .map((placement) => (
+            <Circle
+              key={`${placement.componentId}:${placement.terminalId}`}
+              cx={placement.x}
+              cy={placement.y}
+              r={compact ? 2.5 : 3}
+              fill={theme.colors.circuitUnconnectedTerminal}
+            />
+          ))}
+      </Svg>
+
+      <View pointerEvents="box-none" style={styles.overlay}>
+        {layout.componentPlacements.map((placement) => {
+          const component = componentMap.get(placement.componentId);
+          if (!component) {
+            return null;
+          }
+
+          const displayComponent = {
+            ...component,
+            orientation: placement.orientation || component.orientation,
+          };
+
+          return (
+            <Pressable
+              key={component.id}
+              onPress={() => onSelectComponent?.(component.id)}
+              style={({ pressed }) => [
+                styles.componentCard,
+                {
+                  left: placement.x * initialScale,
+                  top: placement.y * initialScale,
+                  width: placement.width * initialScale,
+                  height: placement.height * initialScale,
+                },
+                pressed && { opacity: 0.7 },
+              ]}
+            >
+              <CircuitSymbol
+                component={displayComponent}
+                x={0}
+                y={0}
+                width={placement.width * initialScale}
+                height={placement.height * initialScale}
+                selected={selectedComponentId === component.id}
+                compact={compact}
+              />
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+
   return (
     <View style={[styles.container, compact ? styles.compactContainer : null]}>
-      {!compact ? (
+      {!compact && !hideChrome ? (
         <View style={styles.toolbar}>
           <Text style={styles.toolbarHint}>拖动画布查看全貌</Text>
           <View style={styles.toolbarActions}>
             <Pressable
-              onPress={() => setScale((current) => clampScale(current - SCALE_STEP))}
-              style={({ pressed }) => [
-                styles.iconButton,
-                pressed && { opacity: 0.7 },
-              ]}
-            >
-              <Ionicons name="remove" size={16} color={theme.colors.foreground} />
-            </Pressable>
-            <Pressable
-              onPress={() => {
-                setScale(fitScale(layout.width, layout.height, viewportWidth - 24, viewportHeight - 24));
-                horizontalScrollRef.current?.scrollTo({ x: 0, animated: true });
-                verticalScrollRef.current?.scrollTo({ y: 0, animated: true });
-              }}
+              onPress={resetPan}
               style={({ pressed }) => [
                 styles.fitButton,
                 pressed && { opacity: 0.7 },
@@ -126,173 +259,49 @@ export default function CircuitCanvas({
             >
               <Text style={styles.fitButtonText}>适配</Text>
             </Pressable>
-            <Text style={styles.scaleText}>{Math.round(scale * 100)}%</Text>
             <Pressable
-              onPress={() => setScale(DETAIL_SCALE)}
+              onPress={() => setFullscreenVisible(true)}
               style={({ pressed }) => [
                 styles.detailButton,
                 pressed && { opacity: 0.7 },
               ]}
             >
-              <Ionicons name="search-outline" size={14} color={theme.colors.primary} />
-              <Text style={styles.detailButtonText}>放大</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => setScale((current) => clampScale(current + SCALE_STEP))}
-              style={({ pressed }) => [
-                styles.iconButton,
-                pressed && { opacity: 0.7 },
-              ]}
-            >
-              <Ionicons name="add" size={16} color={theme.colors.foreground} />
+              <Ionicons name="expand-outline" size={14} color={theme.colors.primary} />
+              <Text style={styles.detailButtonText}>全屏</Text>
             </Pressable>
           </View>
         </View>
-      ) : (
+      ) : null}
+
+      {compact && !hideChrome ? (
         <View style={styles.compactHeader}>
           <Text style={styles.compactTitle}>拓扑预览</Text>
           <Text style={styles.compactSubtitle}>到编辑页可拖动查看完整图</Text>
         </View>
-      )}
+      ) : null}
 
       <View
         style={[
           styles.viewport,
-          compact ? styles.compactViewport : { height: viewportHeight },
+          hideChrome
+            ? styles.fullscreenViewport
+            : compact
+              ? styles.compactViewport
+              : { height: viewportHeight },
         ]}
+        {...panResponder.panHandlers}
       >
-        <ScrollView
-          ref={verticalScrollRef}
-          style={styles.scrollFill}
-          contentContainerStyle={[
-            styles.verticalScrollContent,
-            { minHeight: Math.max(contentHeight, viewportHeight) },
-          ]}
-          showsVerticalScrollIndicator={!compact}
-          nestedScrollEnabled
-          maximumZoomScale={1}
-          minimumZoomScale={1}
+        <Animated.View
+          style={{
+            transform: [{ translateX: panX }, { translateY: panY }],
+          }}
+          pointerEvents="box-none"
         >
-          <ScrollView
-            ref={horizontalScrollRef}
-            horizontal
-            style={[styles.horizontalScroll, { height: Math.max(contentHeight, viewportHeight) }]}
-            contentContainerStyle={[
-              styles.horizontalScrollContent,
-              { minWidth: Math.max(contentWidth, viewportWidth), minHeight: Math.max(contentHeight, viewportHeight) },
-            ]}
-            showsHorizontalScrollIndicator={!compact}
-            nestedScrollEnabled
-          >
-            <View style={{ width: Math.max(contentWidth, viewportWidth), height: Math.max(contentHeight, viewportHeight) }}>
-              <Svg width={contentWidth} height={contentHeight} viewBox={`0 0 ${layout.width} ${layout.height}`}>
-                {wirePaths.map(({ wire, d }) => {
-                  const isSelectedWire = selectedComponentId
-                    ? wire.componentId === selectedComponentId
-                    : false;
-                  return (
-                    <Path
-                      key={wire.id}
-                      d={d}
-                      stroke={isSelectedWire ? theme.colors.primary : theme.colors.circuitWire}
-                      strokeWidth={isSelectedWire ? (compact ? 3 : 3.8) : compact ? 2 : 2.4}
-                      fill="none"
-                      strokeLinejoin="round"
-                      strokeLinecap="round"
-                    />
-                  );
-                })}
-
-                {layout.nodePlacements
-                  .filter((placement) => placement.role !== "hidden")
-                  .map((placement) => {
-                    const node = nodeMap.get(placement.nodeId);
-                    const isGround = node?.kind === "ground";
-                    const isTerminal = placement.role === "terminal";
-                    const label = placement.label || node?.label;
-                    return (
-                      <React.Fragment key={`${placement.nodeId}:${placement.x}:${placement.y}`}>
-                        <Circle
-                          cx={placement.x}
-                          cy={placement.y}
-                          r={isTerminal ? (compact ? 5 : 6) : isGround ? 5 : 4}
-                          fill={isGround ? theme.colors.circuitGround : isTerminal ? theme.colors.circuitNode : theme.colors.circuitNode}
-                        />
-                        {label ? (
-                          <SvgText
-                            x={placement.x + (isTerminal ? 14 : 8)}
-                            y={placement.y + (isTerminal ? 4 : -8)}
-                            fontSize={compact ? 10 : isTerminal ? 15 : 11}
-                            fill={isTerminal ? theme.colors.circuitNode : theme.colors.circuitNodeLabel}
-                            fontWeight={isTerminal ? "700" : "600"}
-                          >
-                            {truncateLabel(label, compact)}
-                          </SvgText>
-                        ) : null}
-                      </React.Fragment>
-                    );
-                  })}
-
-
-                {layout.terminalPlacements
-                  .filter((placement) => !connectedTerminalKeys.has(terminalKey(placement.componentId, placement.terminalId)))
-                  .map((placement) => (
-                  <Circle
-                    key={`${placement.componentId}:${placement.terminalId}`}
-                    cx={placement.x}
-                    cy={placement.y}
-                    r={compact ? 2.5 : 3}
-                    fill={theme.colors.circuitUnconnectedTerminal}
-                  />
-                ))}
-              </Svg>
-
-              <View pointerEvents="box-none" style={styles.overlay}>
-                {layout.componentPlacements.map((placement) => {
-                  const component = componentMap.get(placement.componentId);
-                  if (!component) {
-                    return null;
-                  }
-
-                  const displayComponent = {
-                    ...component,
-                    orientation: placement.orientation || component.orientation,
-                  };
-
-                  return (
-                    <Pressable
-                      key={component.id}
-                      onPress={() => onSelectComponent?.(component.id)}
-                      style={({ pressed }) => [
-                        styles.componentCard,
-                        {
-                          left: placement.x * scale,
-                          top: placement.y * scale,
-                          width: placement.width * scale,
-                          height: placement.height * scale,
-                        },
-                        pressed && { opacity: 0.7 },
-                      ]}
-                    >
-                      <CircuitSymbol
-                        component={displayComponent}
-                        x={0}
-                        y={0}
-                        width={placement.width * scale}
-                        height={placement.height * scale}
-                        selected={selectedComponentId === component.id}
-                        compact={compact}
-                      />
-                    </Pressable>
-                  );
-                })}
-              </View>
-            </View>
-          </ScrollView>
-        </ScrollView>
+          {renderCircuitContent()}
+        </Animated.View>
       </View>
 
-      {!compact ? (
+      {!compact && !hideChrome ? (
         <View style={styles.summaryCard}>
           <Text style={styles.summaryTitle}>拓扑概览</Text>
           {summaryLines.map((component) => (
@@ -304,6 +313,36 @@ export default function CircuitCanvas({
             <Text style={styles.summaryMore}>+{topology.components.length - 4} 个元件</Text>
           ) : null}
         </View>
+      ) : null}
+
+      {!compact ? (
+        <Modal
+          visible={fullscreenVisible}
+          animationType="fade"
+          presentationStyle="fullScreen"
+          onRequestClose={() => setFullscreenVisible(false)}
+        >
+          <View style={styles.fullscreenContainer}>
+            <View style={styles.fullscreenHeader}>
+              <Text style={styles.fullscreenTitle}>电路拓扑 · 全屏</Text>
+              <Pressable
+                onPress={() => setFullscreenVisible(false)}
+                style={({ pressed }) => [
+                  styles.fullscreenCloseBtn,
+                  pressed && { opacity: 0.7 },
+                ]}
+              >
+                <Ionicons name="close" size={20} color={theme.colors.foreground} />
+              </Pressable>
+            </View>
+            <CircuitCanvas
+              topology={topology}
+              selectedComponentId={selectedComponentId}
+              onSelectComponent={onSelectComponent}
+              hideChrome
+            />
+          </View>
+        </Modal>
       ) : null}
     </View>
   );
@@ -342,21 +381,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexShrink: 0,
     gap: theme.spacing.xs,
-  },
-  iconButton: {
-    width: 30,
-    height: 30,
-    borderRadius: theme.radius.full,
-    backgroundColor: theme.colors.muted,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  scaleText: {
-    minWidth: 42,
-    textAlign: "center",
-    fontSize: theme.fontSize.xs,
-    color: theme.colors.mutedForeground,
-    fontWeight: theme.fontWeight.semibold,
   },
   detailButton: {
     flexDirection: "row",
@@ -402,21 +426,13 @@ const styles = StyleSheet.create({
   },
   viewport: {
     backgroundColor: theme.colors.circuitBg,
+    overflow: "hidden",
   },
   compactViewport: {
     height: 188,
   },
-  scrollFill: {
-    flexGrow: 0,
-  },
-  horizontalScroll: {
-    flexGrow: 0,
-  },
-  verticalScrollContent: {
-    flexGrow: 0,
-  },
-  horizontalScrollContent: {
-    flexGrow: 0,
+  fullscreenViewport: {
+    flex: 1,
   },
   overlay: {
     ...StyleSheet.absoluteFillObject,
@@ -447,5 +463,32 @@ const styles = StyleSheet.create({
     fontSize: theme.fontSize.xs,
     color: theme.colors.mutedForeground,
     marginTop: theme.spacing.xs,
+  },
+  fullscreenContainer: {
+    flex: 1,
+    backgroundColor: theme.colors.background,
+  },
+  fullscreenHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: theme.spacing.lg,
+    paddingTop: 48,
+    paddingBottom: theme.spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+  },
+  fullscreenTitle: {
+    fontSize: theme.fontSize.lg,
+    fontWeight: theme.fontWeight.semibold,
+    color: theme.colors.foreground,
+  },
+  fullscreenCloseBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: theme.colors.muted,
+    justifyContent: "center",
+    alignItems: "center",
   },
 });
