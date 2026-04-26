@@ -15,7 +15,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { AppSettings, ProviderPreset, ProviderSelection } from "../types";
 import { loadAppSettings, saveAppSettings } from "../services/storage";
 import { testApiConnection } from "../services/api";
-import { getEmbeddedSettings } from "../services/embeddedKeys";
+import { getEmbeddedSettings, getEmbeddedApiKey } from "../services/embeddedKeys";
 import {
   VISUAL_PRESETS,
   REASONING_PRESETS,
@@ -67,12 +67,13 @@ export default function SettingsScreen() {
       const preset = findVisualPreset(newProviderId);
       if (!preset) return;
       const embedded = getEmbeddedSettings();
+      const embeddedKey =
+        embedded?.visual.providerId === newProviderId
+          ? embedded.visual.apiKey
+          : getEmbeddedApiKey(newProviderId);
       setVisual({
         ...defaultSelectionForPreset(preset),
-        apiKey:
-          embedded?.visual.providerId === newProviderId
-            ? embedded.visual.apiKey
-            : "",
+        apiKey: embeddedKey || "",
       });
     },
     []
@@ -103,12 +104,13 @@ export default function SettingsScreen() {
       const preset = findReasoningPreset(newProviderId);
       if (!preset) return;
       const embedded = getEmbeddedSettings();
+      const embeddedKey =
+        embedded?.reasoning.providerId === newProviderId
+          ? embedded.reasoning.apiKey
+          : getEmbeddedApiKey(newProviderId);
       setReasoning({
         ...defaultSelectionForPreset(preset),
-        apiKey:
-          embedded?.reasoning.providerId === newProviderId
-            ? embedded.reasoning.apiKey
-            : "",
+        apiKey: embeddedKey || "",
       });
     },
     []

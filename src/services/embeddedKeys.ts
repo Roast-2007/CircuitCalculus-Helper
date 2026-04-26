@@ -17,6 +17,17 @@ const EMBEDDED: AppSettings = {
   },
 };
 
+const EMBEDDED_API_KEYS: Record<string, string> = {
+  siliconflow: "",
+  deepseek: "",
+  alibaba_bailian: "",
+};
+
 export function getEmbeddedSettings(): AppSettings | null {
   return null; // 设为 EMBEDDED 时嵌入 Key
+}
+
+export function getEmbeddedApiKey(providerId: string): string | null {
+  const key = EMBEDDED_API_KEYS[providerId];
+  return key || null;
 }

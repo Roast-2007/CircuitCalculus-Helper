@@ -318,7 +318,6 @@ export default function HomeScreen() {
         quality: 0.9,
         base64: false,
         allowsEditing: true,
-        aspect: [4, 3],
       });
 
       if (!result.canceled && result.assets[0]?.uri) {

@@ -2,7 +2,7 @@ import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
 import { AppSettings, ProviderSelection } from "../types";
 import { defaultSelectionForPreset, findVisualPreset, findReasoningPreset } from "../constants/providerPresets";
-import { getEmbeddedSettings } from "./embeddedKeys";
+import { getEmbeddedSettings, getEmbeddedApiKey } from "./embeddedKeys";
 
 const VISUAL_KEY = "app_settings_visual";
 const REASONING_KEY = "app_settings_reasoning";
@@ -52,11 +52,11 @@ function mergeEmbeddedSettings(settings: AppSettings): AppSettings {
   return {
     visual: {
       ...settings.visual,
-      apiKey: settings.visual.apiKey || embedded.visual.apiKey,
+      apiKey: settings.visual.apiKey || embedded.visual.apiKey || getEmbeddedApiKey(settings.visual.providerId) || "",
     },
     reasoning: {
       ...settings.reasoning,
-      apiKey: settings.reasoning.apiKey || embedded.reasoning.apiKey,
+      apiKey: settings.reasoning.apiKey || embedded.reasoning.apiKey || getEmbeddedApiKey(settings.reasoning.providerId) || "",
     },
   };
 }
