@@ -26,8 +26,9 @@ type Props = {
 
 const COMPACT_SCALE = 0.62;
 const DEFAULT_SCALE = 1;
+const DETAIL_SCALE = 1.45;
 const MIN_SCALE = 0.55;
-const MAX_SCALE = 1.8;
+const MAX_SCALE = 2.6;
 const SCALE_STEP = 0.2;
 
 function clampScale(value: number) {
@@ -125,6 +126,17 @@ export default function CircuitCanvas({
             >
               <Text style={styles.fitButtonText}>适配</Text>
             </Pressable>
+            <Text style={styles.scaleText}>{Math.round(scale * 100)}%</Text>
+            <Pressable
+              onPress={() => setScale(DETAIL_SCALE)}
+              style={({ pressed }) => [
+                styles.detailButton,
+                pressed && { opacity: 0.7 },
+              ]}
+            >
+              <Ionicons name="search-outline" size={14} color={theme.colors.primary} />
+              <Text style={styles.detailButtonText}>放大</Text>
+            </Pressable>
             <Pressable
               onPress={() => setScale((current) => clampScale(current + SCALE_STEP))}
               style={({ pressed }) => [
@@ -152,20 +164,27 @@ export default function CircuitCanvas({
         <ScrollView
           ref={verticalScrollRef}
           style={styles.scrollFill}
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[
+            styles.verticalScrollContent,
+            { minHeight: Math.max(contentHeight, viewportHeight) },
+          ]}
+          showsVerticalScrollIndicator={!compact}
+          nestedScrollEnabled
           maximumZoomScale={1}
           minimumZoomScale={1}
         >
           <ScrollView
             ref={horizontalScrollRef}
             horizontal
-            style={styles.scrollFill}
-            contentContainerStyle={styles.scrollContent}
+            style={[styles.horizontalScroll, { height: Math.max(contentHeight, viewportHeight) }]}
+            contentContainerStyle={[
+              styles.horizontalScrollContent,
+              { minWidth: Math.max(contentWidth, viewportWidth), minHeight: Math.max(contentHeight, viewportHeight) },
+            ]}
             showsHorizontalScrollIndicator={!compact}
-            showsVerticalScrollIndicator={!compact}
             nestedScrollEnabled
           >
-            <View style={{ width: contentWidth, height: contentHeight }}>
+            <View style={{ width: Math.max(contentWidth, viewportWidth), height: Math.max(contentHeight, viewportHeight) }}>
               <Svg width={contentWidth} height={contentHeight} viewBox={`0 0 ${layout.width} ${layout.height}`}>
                 {wirePaths.map(({ wire, d }) => {
                   const isSelectedWire = selectedComponentId
@@ -313,6 +332,7 @@ const styles = StyleSheet.create({
     borderBottomColor: theme.colors.border,
   },
   toolbarHint: {
+    flex: 1,
     fontSize: theme.fontSize.sm,
     color: theme.colors.mutedForeground,
     fontWeight: theme.fontWeight.medium,
@@ -320,6 +340,7 @@ const styles = StyleSheet.create({
   toolbarActions: {
     flexDirection: "row",
     alignItems: "center",
+    flexShrink: 0,
     gap: theme.spacing.xs,
   },
   iconButton: {
@@ -329,6 +350,27 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.muted,
     justifyContent: "center",
     alignItems: "center",
+  },
+  scaleText: {
+    minWidth: 42,
+    textAlign: "center",
+    fontSize: theme.fontSize.xs,
+    color: theme.colors.mutedForeground,
+    fontWeight: theme.fontWeight.semibold,
+  },
+  detailButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    height: 30,
+    paddingHorizontal: 10,
+    borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.primaryMuted,
+  },
+  detailButtonText: {
+    fontSize: theme.fontSize.xs,
+    color: theme.colors.primary,
+    fontWeight: theme.fontWeight.semibold,
   },
   fitButton: {
     paddingHorizontal: 12,
@@ -367,8 +409,14 @@ const styles = StyleSheet.create({
   scrollFill: {
     flexGrow: 0,
   },
-  scrollContent: {
-    flexGrow: 1,
+  horizontalScroll: {
+    flexGrow: 0,
+  },
+  verticalScrollContent: {
+    flexGrow: 0,
+  },
+  horizontalScrollContent: {
+    flexGrow: 0,
   },
   overlay: {
     ...StyleSheet.absoluteFillObject,
