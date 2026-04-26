@@ -48,7 +48,21 @@ release 产物路径：
 E:\Personal Files\ocr-math\android\app\build\outputs\apk\release\app-release.apk
 ```
 
-如果用户要求“成品包”，默认指 release APK，不要只跑 debug。
+如果用户要求”成品包”，默认指 release APK，不要只跑 debug。
+
+#### 双版本构建（嵌入 Key / 无 Key）
+
+当用户要求”build 两版放桌面”时：
+
+1. 如果用户未在上下文中提供 API Key，使用 AskUserQuestion 索取硅基流动和 DeepSeek 的 key
+2. 修改 `src/services/embeddedKeys.ts`：
+   - `EMBEDDED.visual.apiKey` 填入硅基流动 key
+   - `EMBEDDED.reasoning.apiKey` 填入 DeepSeek key
+   - `getEmbeddedSettings()` 返回 `EMBEDDED`
+3. 执行 `assembleRelease`，产物复制到 `C:\Users\wangh\Desktop\ocr-math-with-keys.apk`
+4. 恢复 `embeddedKeys.ts`（apiKey 清空，返回 `null`）
+5. 再次执行 `assembleRelease`，产物复制到 `C:\Users\wangh\Desktop\ocr-math-no-keys.apk`
+6. `embeddedKeys.ts` 保持干净状态，不提交 key
 
 ### Icon pipeline
 
