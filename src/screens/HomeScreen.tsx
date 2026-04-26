@@ -122,6 +122,7 @@ export default function HomeScreen() {
   const [reviewEditText, setReviewEditText] = useState("");
   const [reviewNotes, setReviewNotes] = useState("");
   const [showReviewModal, setShowReviewModal] = useState(false);
+  const [scanHintVisible, setScanHintVisible] = useState(true);
   const [switchToCircuitEdit, setSwitchToCircuitEdit] = useState(false);
   const [editingMessageCircuit, setEditingMessageCircuit] = useState<CircuitTopology | null>(null);
   const [circuitEditorMode, setCircuitEditorMode] = useState<"message" | "manual">("message");
@@ -845,17 +846,28 @@ export default function HomeScreen() {
         </View>
       </View>
 
-      <View style={styles.scanHint}>
-        <Ionicons name="document-text-outline" size={14} color={theme.colors.primary} />
-        <View style={styles.scanHintTextWrap}>
-          <Text style={styles.scanHintText}>
-            建议使用「全能扫描王」等应用预处理图片后再上传，可显著提升识别准确率
-          </Text>
-          <Text style={styles.scanHintSubText}>
-            新的题请开启新对话，不要反复使用同一个对话窗口，否则会影响识别与解答准确率
-          </Text>
+      {scanHintVisible ? (
+        <View style={styles.scanHint}>
+          <Ionicons name="document-text-outline" size={14} color={theme.colors.primary} />
+          <View style={styles.scanHintTextWrap}>
+            <Text style={styles.scanHintText}>
+              建议使用「全能扫描王」等应用预处理图片后再上传，可显著提升识别准确率
+            </Text>
+            <Text style={styles.scanHintSubText}>
+              新的题请开启新对话，不要反复使用同一个对话窗口，否则会影响识别与解答准确率
+            </Text>
+          </View>
+          <Pressable
+            onPress={() => setScanHintVisible(false)}
+            style={({ pressed }) => [
+              styles.scanHintCloseBtn,
+              pressed && { opacity: 0.5 },
+            ]}
+          >
+            <Ionicons name="close" size={16} color={theme.colors.primary} />
+          </Pressable>
         </View>
-      </View>
+      ) : null}
 
       <FlatList
         ref={flatListRef}
@@ -970,6 +982,12 @@ export default function HomeScreen() {
             <Ionicons name="send" size={18} color={theme.colors.primaryForeground} />
           </Pressable>
         </View>
+      </View>
+
+      <View style={styles.bottomHint}>
+        <Text style={styles.bottomHintText}>
+          若AI识图内容错误导致解答错误，请开启新对话重新尝试，或更换更强的视觉模型，如Kimi-K2.6或Qwen3.6-plus。
+        </Text>
       </View>
 
       <ConversationHistoryModal
@@ -1178,6 +1196,23 @@ const styles = StyleSheet.create({
     color: theme.colors.primary,
     lineHeight: 17,
     opacity: 0.82,
+  },
+  scanHintCloseBtn: {
+    padding: 4,
+    marginLeft: theme.spacing.xs,
+  },
+  bottomHint: {
+    paddingHorizontal: theme.spacing.lg,
+    paddingVertical: theme.spacing.xs,
+    backgroundColor: theme.colors.background,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: theme.colors.border,
+  },
+  bottomHintText: {
+    fontSize: 10,
+    color: theme.colors.mutedForeground,
+    lineHeight: 14,
+    textAlign: "center",
   },
   messageList: { flex: 1 },
   messageContent: {
