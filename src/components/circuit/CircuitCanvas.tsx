@@ -47,6 +47,10 @@ function truncateLabel(value: string, compact: boolean) {
   return value.length > maxLength ? `${value.slice(0, maxLength)}…` : value;
 }
 
+function terminalKey(componentId: string, terminalId: string): string {
+  return `${componentId}:${terminalId}`;
+}
+
 export default function CircuitCanvas({
   topology,
   selectedComponentId,
@@ -71,6 +75,27 @@ export default function CircuitCanvas({
   const contentWidth = layout.width * scale;
   const contentHeight = layout.height * scale;
   const summaryLines = topology.components.slice(0, compact ? 0 : 4);
+  const connectedTerminalKeys = useMemo(
+    () => new Set(topology.connections.map((connection) => terminalKey(connection.componentId, connection.terminalId))),
+    [topology.connections]
+  );
+  const componentMap = useMemo(
+    () => new Map(topology.components.map((component) => [component.id, component])),
+    [topology.components]
+  );
+  const nodeMap = useMemo(
+    () => new Map(topology.nodes.map((node) => [node.id, node])),
+    [topology.nodes]
+  );
+  const wirePaths = useMemo(
+    () => layout.wirePlacements.map((wire) => ({
+      wire,
+      d: wire.points
+        .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`)
+        .join(" "),
+    })),
+    [layout.wirePlacements]
+  );
 
   return (
     <View style={[styles.container, compact ? styles.compactContainer : null]}>
@@ -142,16 +167,16 @@ export default function CircuitCanvas({
           >
             <View style={{ width: contentWidth, height: contentHeight }}>
               <Svg width={contentWidth} height={contentHeight} viewBox={`0 0 ${layout.width} ${layout.height}`}>
-                {layout.wirePlacements.map((wire) => {
-                  const d = wire.points
-                    .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`)
-                    .join(" ");
+                {wirePaths.map(({ wire, d }) => {
+                  const isSelectedWire = selectedComponentId
+                    ? wire.componentId === selectedComponentId
+                    : false;
                   return (
                     <Path
                       key={wire.id}
                       d={d}
-                      stroke={theme.colors.circuitWire}
-                      strokeWidth={compact ? 2 : 2.4}
+                      stroke={isSelectedWire ? theme.colors.primary : theme.colors.circuitWire}
+                      strokeWidth={isSelectedWire ? (compact ? 3 : 3.8) : compact ? 2 : 2.4}
                       fill="none"
                       strokeLinejoin="round"
                       strokeLinecap="round"
@@ -162,7 +187,7 @@ export default function CircuitCanvas({
                 {layout.nodePlacements
                   .filter((placement) => placement.role !== "hidden")
                   .map((placement) => {
-                    const node = topology.nodes.find((candidate) => candidate.id === placement.nodeId);
+                    const node = nodeMap.get(placement.nodeId);
                     const isGround = node?.kind === "ground";
                     const isTerminal = placement.role === "terminal";
                     const label = placement.label || node?.label;
@@ -191,12 +216,7 @@ export default function CircuitCanvas({
 
 
                 {layout.terminalPlacements
-                  .filter((placement) => !layout.nodePlacements.some(
-                    (nodePlacement) =>
-                      nodePlacement.role !== "hidden" &&
-                      Math.abs(nodePlacement.x - placement.x) < 1 &&
-                      Math.abs(nodePlacement.y - placement.y) < 1
-                  ))
+                  .filter((placement) => !connectedTerminalKeys.has(terminalKey(placement.componentId, placement.terminalId)))
                   .map((placement) => (
                   <Circle
                     key={`${placement.componentId}:${placement.terminalId}`}
@@ -210,9 +230,7 @@ export default function CircuitCanvas({
 
               <View pointerEvents="box-none" style={styles.overlay}>
                 {layout.componentPlacements.map((placement) => {
-                  const component = topology.components.find(
-                    (candidate) => candidate.id === placement.componentId
-                  );
+                  const component = componentMap.get(placement.componentId);
                   if (!component) {
                     return null;
                   }

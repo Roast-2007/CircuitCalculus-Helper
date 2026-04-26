@@ -136,6 +136,9 @@ export type CircuitTerminalPlacement = {
 export type CircuitWirePlacement = {
   id: string;
   connectionId: string;
+  componentId?: string;
+  terminalId?: string;
+  nodeId?: string;
   points: CircuitPoint[];
 };
 
