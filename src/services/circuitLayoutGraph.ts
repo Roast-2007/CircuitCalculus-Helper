@@ -13,465 +13,312 @@ import {
 } from "../types";
 import { getComponentNodeMap } from "./circuitSerialize";
 
-const PADDING_X = 96;
-const PADDING_Y = 150;
-const TOP_Y = PADDING_Y;
-const BOTTOM_Y = PADDING_Y + 230;
-const SOURCE_X = PADDING_X;
-const COLUMN_GAP = 190;
-const END_STUB = 150;
-const PARALLEL_BRANCH_GAP = 92;
-const HORIZONTAL_WIDTH = 118;
-const HORIZONTAL_HEIGHT = 66;
-const VERTICAL_WIDTH = 66;
-const VERTICAL_HEIGHT = 124;
-const WIRE_STUB = 12;
+const PADDING_X = 80;
+const PADDING_Y = 60;
+const LAYER_GAP_X = 200;
+const RANK_GAP_Y = 120;
+const COMPONENT_W = 110;
+const COMPONENT_H = 60;
+const VERTICAL_W = 56;
+const VERTICAL_H = 110;
+const MULTI_TERMINAL_W = 120;
+const MULTI_TERMINAL_H = 140;
+const PARALLEL_OFFSET = 84;
+const WIRE_STUB = 14;
+const SUBGRAPH_GAP = 160;
+
+type NodeId = string;
+type ComponentId = string;
+type Edge = { component: CircuitComponent; nodeA: NodeId; nodeB: NodeId };
 
 const SOURCE_KINDS = new Set(["voltage_source", "current_source"]);
 const CONTROLLED_SOURCE_KINDS = new Set(["vcvs", "vccs", "ccvs", "cccs"]);
-const PASSIVE_BRANCH_KINDS = new Set(["resistor", "capacitor", "inductor", "diode", "switch"]);
-const TERMINAL_LABELS = new Set(["a", "b", "out", "output", "端口a", "端口b"]);
-
-type Edge = {
-  component: CircuitComponent;
-  nodeA: string;
-  nodeB: string;
-};
-
-type LogicalNode = {
-  nodeId: string;
-  x: number;
-  y: number;
-  role?: "junction" | "terminal" | "hidden";
-  label?: string;
-};
-
-type PlacedComponent = {
-  component: CircuitComponent;
-  edge: Edge;
-  placement: CircuitComponentPlacement;
-};
-
-type ParallelEdge = {
-  edge: Edge;
-  baseEdge: Edge;
-  offsetIndex: number;
-};
+const MULTI_TERMINAL_KINDS = new Set(["bjt", "mosfet", "opamp", "transformer"]);
 
 function normalizeLabel(value: string): string {
   return value.trim().toLowerCase();
 }
 
-function isTerminalNode(node: CircuitNode | undefined): boolean {
-  if (!node) {
-    return false;
-  }
-  const id = normalizeLabel(node.id);
-  const label = normalizeLabel(node.label);
-  return TERMINAL_LABELS.has(id) || TERMINAL_LABELS.has(label);
-}
+// ── Graph building ──
 
-function getNodeLabel(topology: CircuitTopology, nodeId: string): string {
-  return topology.nodes.find((node) => node.id === nodeId)?.label || nodeId;
-}
+function buildAdjacency(topology: CircuitTopology) {
+  const nodeToComponents = new Map<NodeId, ComponentId[]>();
+  const componentToNodes = new Map<ComponentId, NodeId[]>();
 
-function getEdge(topology: CircuitTopology, component: CircuitComponent): Edge | null {
-  if (component.terminals.length !== 2) {
-    return null;
-  }
+  for (const conn of topology.connections) {
+    const component = topology.components.find((c) => c.id === conn.componentId);
+    if (!component) continue;
 
-  const nodeMap = getComponentNodeMap(topology, component.id);
-  const nodeIds = component.terminals.map((terminal) => nodeMap[terminal.id] || "");
+    let nodeIds = componentToNodes.get(conn.componentId) || [];
+    if (!nodeIds.includes(conn.nodeId)) {
+      nodeIds.push(conn.nodeId);
+      componentToNodes.set(conn.componentId, nodeIds);
+    }
 
-  if (!nodeIds[0] || !nodeIds[1] || nodeIds[0] === nodeIds[1]) {
-    return null;
+    let compIds = nodeToComponents.get(conn.nodeId) || [];
+    if (!compIds.includes(conn.componentId)) {
+      compIds.push(conn.componentId);
+      nodeToComponents.set(conn.nodeId, compIds);
+    }
   }
 
-  return {
-    component,
-    nodeA: nodeIds[0],
-    nodeB: nodeIds[1],
-  };
+  return { nodeToComponents, componentToNodes };
 }
 
-function getEdges(topology: CircuitTopology): Edge[] | null {
-  const edges = topology.components.map((component) => getEdge(topology, component));
-  if (edges.some((edge) => edge === null)) {
-    return null;
-  }
-  return edges as Edge[];
-}
+// ── Connected subgraphs ──
 
-function addAdjacency(adjacency: Map<string, Edge[]>, nodeId: string, edge: Edge): void {
-  const edges = adjacency.get(nodeId) || [];
-  edges.push(edge);
-  adjacency.set(nodeId, edges);
-}
-
-function buildAdjacency(edges: Edge[]): Map<string, Edge[]> {
-  const adjacency = new Map<string, Edge[]>();
-  edges.forEach((edge) => {
-    addAdjacency(adjacency, edge.nodeA, edge);
-    addAdjacency(adjacency, edge.nodeB, edge);
-  });
-  return adjacency;
-}
-
-function otherNode(edge: Edge, nodeId: string): string {
-  return edge.nodeA === nodeId ? edge.nodeB : edge.nodeA;
-}
-
-function findSource(edges: Edge[]): Edge | undefined {
-  return edges.find((edge) => SOURCE_KINDS.has(edge.component.kind));
-}
-
-function findTerminalNode(topology: CircuitTopology, preferred: string): string | null {
-  const normalizedPreferred = preferred.toLowerCase();
-  const node = topology.nodes.find((candidate) => {
-    const id = normalizeLabel(candidate.id);
-    const label = normalizeLabel(candidate.label);
-    return id === normalizedPreferred || label === normalizedPreferred;
-  });
-  return node?.id || null;
-}
-
-function chooseSourceTopNode(topology: CircuitTopology, sourceEdge: Edge): string {
-  const positiveConnection = topology.connections.find(
-    (connection) =>
-      connection.componentId === sourceEdge.component.id &&
-      ["positive", "+", "p", "a", "top"].includes(normalizeLabel(connection.terminalId))
-  );
-
-  if (positiveConnection) {
-    return positiveConnection.nodeId;
-  }
-
-  const nodeA = topology.nodes.find((node) => node.id === sourceEdge.nodeA);
-  const nodeB = topology.nodes.find((node) => node.id === sourceEdge.nodeB);
-  if (nodeA?.kind === "ground" && nodeB) {
-    return nodeB.id;
-  }
-  if (nodeB?.kind === "ground" && nodeA) {
-    return nodeA.id;
-  }
-
-  return sourceEdge.nodeA;
-}
-
-function terminalScore(topology: CircuitTopology, nodeId: string): number {
-  const node = topology.nodes.find((candidate) => candidate.id === nodeId);
-  if (!node) {
-    return 0;
-  }
-  const label = normalizeLabel(node.label || node.id);
-  if (label === "a") return 100;
-  if (label === "out" || label === "output") return 90;
-  if (isTerminalNode(node)) return 80;
-  return 0;
-}
-
-function componentPathPriority(component: CircuitComponent): number {
-  if (CONTROLLED_SOURCE_KINDS.has(component.kind)) {
-    return 100;
-  }
-  if (component.kind === "wire") {
-    return 80;
-  }
-  if (PASSIVE_BRANCH_KINDS.has(component.kind)) {
-    return 60;
-  }
-  return 40;
-}
-
-function walkMainPath(
+function findSubgraphs(
   topology: CircuitTopology,
-  adjacency: Map<string, Edge[]>,
-  sourceEdge: Edge,
-  sourceTopNodeId: string
-): Edge[] {
-  const used = new Set<string>([sourceEdge.component.id]);
-  const path: Edge[] = [];
-  let currentNodeId = sourceTopNodeId;
+  nodeToComponents: Map<NodeId, ComponentId[]>,
+  componentToNodes: Map<ComponentId, NodeId[]>
+): Array<{ nodeIds: Set<NodeId>; componentIds: Set<ComponentId> }> {
+  const visited = new Set<NodeId>();
+  const subgraphs: Array<{ nodeIds: Set<NodeId>; componentIds: Set<ComponentId> }> = [];
 
-  while (true) {
-    const candidates = (adjacency.get(currentNodeId) || []).filter((edge) => {
-      if (used.has(edge.component.id)) {
-        return false;
+  const allNodeIds = new Set<string>([
+    ...topology.nodes.map((n) => n.id),
+    ...Array.from(componentToNodes.values()).flat(),
+  ]);
+
+  for (const startNodeId of allNodeIds) {
+    if (visited.has(startNodeId)) continue;
+
+    const nodeIds = new Set<NodeId>();
+    const componentIds = new Set<ComponentId>();
+    const queue: NodeId[] = [startNodeId];
+    visited.add(startNodeId);
+
+    while (queue.length > 0) {
+      const nodeId = queue.shift()!;
+      nodeIds.add(nodeId);
+
+      const compIds = nodeToComponents.get(nodeId) || [];
+      for (const compId of compIds) {
+        componentIds.add(compId);
+        const neighborNodes = componentToNodes.get(compId) || [];
+        for (const neighborId of neighborNodes) {
+          if (!visited.has(neighborId)) {
+            visited.add(neighborId);
+            queue.push(neighborId);
+          }
+        }
       }
-      const nextNodeId = otherNode(edge, currentNodeId);
-      const nextNode = topology.nodes.find((node) => node.id === nextNodeId);
-      return nextNode?.kind !== "ground";
-    });
-
-    if (candidates.length === 0) {
-      break;
     }
 
-    const nextEdge = [...candidates].sort((left, right) => {
-      const leftNext = otherNode(left, currentNodeId);
-      const rightNext = otherNode(right, currentNodeId);
-      const leftTerminal = terminalScore(topology, leftNext);
-      const rightTerminal = terminalScore(topology, rightNext);
-      if (leftTerminal !== rightTerminal) {
-        return rightTerminal - leftTerminal;
-      }
-      return componentPathPriority(right.component) - componentPathPriority(left.component);
-    })[0];
-
-    path.push(nextEdge);
-    used.add(nextEdge.component.id);
-    currentNodeId = otherNode(nextEdge, currentNodeId);
-
-    if (terminalScore(topology, currentNodeId) > 0) {
-      break;
-    }
+    subgraphs.push({ nodeIds, componentIds });
   }
 
-  return path;
+  return subgraphs;
 }
 
-function edgeKey(left: string, right: string): string {
-  return [left, right].sort().join("::");
+// ── Layer assignment ──
+
+type NodeLayerInfo = { layer: number; rank: number };
+type LayerAssignment = Map<NodeId, NodeLayerInfo>;
+
+const GROUND_LABELS = new Set(["0", "gnd", "ground"]);
+
+function isGroundNode(nodeId: string, nodes: CircuitNode[]): boolean {
+  const label = normalizeLabel(nodeId);
+  if (GROUND_LABELS.has(label)) return true;
+  const node = nodes.find((n) => n.id === nodeId);
+  return node?.kind === "ground";
 }
 
-function findParallelEdges(edges: Edge[], mainPath: Edge[], usedComponentIds: Set<string>): ParallelEdge[] {
-  const mainByNodePair = new Map<string, Edge>();
-  mainPath.forEach((edge) => {
-    mainByNodePair.set(edgeKey(edge.nodeA, edge.nodeB), edge);
-  });
-
-  const parallelCounts = new Map<string, number>();
-  return edges.flatMap((edge) => {
-    if (usedComponentIds.has(edge.component.id)) {
-      return [];
-    }
-
-    const key = edgeKey(edge.nodeA, edge.nodeB);
-    const baseEdge = mainByNodePair.get(key);
-    if (!baseEdge) {
-      return [];
-    }
-
-    const offsetIndex = parallelCounts.get(key) || 0;
-    parallelCounts.set(key, offsetIndex + 1);
-    usedComponentIds.add(edge.component.id);
-    return [{ edge, baseEdge, offsetIndex }];
-  });
+function isTerminalLabel(nodeId: string): boolean {
+  const label = normalizeLabel(nodeId);
+  return ["a", "b", "out", "output"].includes(label);
 }
 
-function findBranchEdges(
-  adjacency: Map<string, Edge[]>,
-  mainNodeIds: Set<string>,
-  usedComponentIds: Set<string>
-): Edge[] {
-  const branches: Edge[] = [];
-  mainNodeIds.forEach((nodeId) => {
-    (adjacency.get(nodeId) || []).forEach((edge) => {
-      if (usedComponentIds.has(edge.component.id)) {
-        return;
-      }
-      const nextNodeId = otherNode(edge, nodeId);
-      if (mainNodeIds.has(nextNodeId)) {
-        return;
-      }
-      branches.push(edge);
-      usedComponentIds.add(edge.component.id);
-    });
-  });
-  return branches;
-}
-
-function createLogicalNodes(
+function assignLayers(
+  subgraph: { nodeIds: Set<string>; componentIds: Set<string> },
   topology: CircuitTopology,
-  mainPath: Edge[],
-  sourceTopNodeId: string,
-  sourceBottomNodeId: string,
-  branchEdges: Edge[],
-  parallelEdges: ParallelEdge[]
-): LogicalNode[] {
-  const nodes = new Map<string, LogicalNode>();
-  const setNode = (node: LogicalNode) => {
-    nodes.set(node.nodeId, node);
-  };
+  nodeToComponents: Map<NodeId, ComponentId[]>,
+  componentToNodes: Map<ComponentId, NodeId[]>
+): LayerAssignment {
+  const layers = new Map<NodeId, NodeLayerInfo>();
+  const componentMap = new Map(topology.components.map((c) => [c.id, c]));
 
-  setNode({ nodeId: sourceTopNodeId, x: SOURCE_X, y: TOP_Y, role: "hidden" });
-  setNode({ nodeId: sourceBottomNodeId, x: SOURCE_X, y: BOTTOM_Y, role: "hidden" });
-
-  let currentNodeId = sourceTopNodeId;
-  mainPath.forEach((edge, index) => {
-    const nextNodeId = otherNode(edge, currentNodeId);
-    const x = SOURCE_X + (index + 1) * COLUMN_GAP;
-    const nextNode = topology.nodes.find((node) => node.id === nextNodeId);
-    setNode({
-      nodeId: nextNodeId,
-      x,
-      y: TOP_Y,
-      role: isTerminalNode(nextNode) ? "terminal" : "junction",
-      label: getNodeLabel(topology, nextNodeId),
-    });
-    currentNodeId = nextNodeId;
-  });
-
-  parallelEdges.forEach(({ edge, offsetIndex }) => {
-    const nodeA = nodes.get(edge.nodeA);
-    const nodeB = nodes.get(edge.nodeB);
-    if (!nodeA || !nodeB) {
-      return;
+  // Seed: ground nodes at layer 0, rank at bottom
+  const groundNodes: NodeId[] = [];
+  for (const nodeId of subgraph.nodeIds) {
+    if (isGroundNode(nodeId, topology.nodes)) {
+      groundNodes.push(nodeId);
     }
-    const y = TOP_Y - PARALLEL_BRANCH_GAP * (offsetIndex + 1);
-    setNode({ nodeId: `${edge.nodeA}:parallel-${edge.component.id}`, x: nodeA.x, y, role: "hidden" });
-    setNode({ nodeId: `${edge.nodeB}:parallel-${edge.component.id}`, x: nodeB.x, y, role: "hidden" });
-  });
-
-  const terminalB = findTerminalNode(topology, "b");
-  const lastTop = Array.from(nodes.values())
-    .filter((placement) => placement.y === TOP_Y)
-    .sort((left, right) => right.x - left.x)[0];
-
-  branchEdges.forEach((edge) => {
-    const mainNodeId = nodes.has(edge.nodeA) ? edge.nodeA : edge.nodeB;
-    const branchNodeId = otherNode(edge, mainNodeId);
-    const mainNode = nodes.get(mainNodeId);
-    if (!mainNode) {
-      return;
-    }
-
-    const branchNode = topology.nodes.find((node) => node.id === branchNodeId);
-    const isBTerminal = terminalB === branchNodeId;
-    setNode({
-      nodeId: `${branchNodeId}:branch-${edge.component.id}`,
-      x: mainNode.x,
-      y: BOTTOM_Y,
-      role: "junction",
-      label: isBTerminal ? undefined : getNodeLabel(topology, branchNodeId),
-    });
-
-    if (!nodes.has(branchNodeId)) {
-      setNode({
-        nodeId: branchNodeId,
-        x: mainNode.x,
-        y: BOTTOM_Y,
-        role: isTerminalNode(branchNode) && !isBTerminal ? "terminal" : "hidden",
-        label: isTerminalNode(branchNode) && !isBTerminal ? getNodeLabel(topology, branchNodeId) : undefined,
-      });
-    }
-  });
-
-  topology.nodes.forEach((node) => {
-    if (nodes.has(node.id)) {
-      return;
-    }
-
-    const isA = normalizeLabel(node.label || node.id) === "a";
-    const isB = normalizeLabel(node.label || node.id) === "b";
-    const x = (lastTop?.x || SOURCE_X) + END_STUB;
-
-    setNode({
-      nodeId: node.id,
-      x,
-      y: isB ? BOTTOM_Y : TOP_Y,
-      role: isA || isB || isTerminalNode(node) ? "terminal" : "junction",
-      label: node.label || node.id,
-    });
-  });
-
-  return Array.from(nodes.values());
-}
-
-function getDimensions(orientation: ComponentOrientation) {
-  return orientation === "vertical"
-    ? { width: VERTICAL_WIDTH, height: VERTICAL_HEIGHT }
-    : { width: HORIZONTAL_WIDTH, height: HORIZONTAL_HEIGHT };
-}
-
-function placeComponentBetween(
-  edge: Edge,
-  nodeA: LogicalNode,
-  nodeB: LogicalNode,
-  orientation: ComponentOrientation
-): PlacedComponent {
-  const dimensions = getDimensions(orientation);
-  const centerX = orientation === "vertical" ? nodeA.x : (nodeA.x + nodeB.x) / 2;
-  const centerY = (nodeA.y + nodeB.y) / 2;
-
-  return {
-    component: edge.component,
-    edge,
-    placement: {
-      componentId: edge.component.id,
-      x: centerX - dimensions.width / 2,
-      y: centerY - dimensions.height / 2,
-      width: dimensions.width,
-      height: dimensions.height,
-      orientation,
-    },
-  };
-}
-
-function getPhysicalNode(logicalNodeMap: Map<string, LogicalNode>, edge: Edge, nodeId: string): LogicalNode | undefined {
-  return (
-    logicalNodeMap.get(`${nodeId}:parallel-${edge.component.id}`) ||
-    logicalNodeMap.get(`${nodeId}:branch-${edge.component.id}`) ||
-    logicalNodeMap.get(nodeId)
-  );
-}
-
-function buildComponentPlacements(
-  sourceEdge: Edge,
-  mainPath: Edge[],
-  branchEdges: Edge[],
-  logicalNodeMap: Map<string, LogicalNode>,
-  sourceTopNodeId: string,
-  sourceBottomNodeId: string
-): PlacedComponent[] {
-  const placed: PlacedComponent[] = [];
-  const sourceTopNode = logicalNodeMap.get(sourceTopNodeId);
-  const sourceBottomNode = logicalNodeMap.get(sourceBottomNodeId);
-  if (sourceTopNode && sourceBottomNode) {
-    placed.push(placeComponentBetween(sourceEdge, sourceTopNode, sourceBottomNode, "vertical"));
   }
 
-  let currentNodeId = sourceTopNodeId;
-  mainPath.forEach((edge) => {
-    const nextNodeId = otherNode(edge, currentNodeId);
-    const leftNode = getPhysicalNode(logicalNodeMap, edge, currentNodeId);
-    const rightNode = getPhysicalNode(logicalNodeMap, edge, nextNodeId);
-    if (leftNode && rightNode) {
-      placed.push(placeComponentBetween(edge, leftNode, rightNode, "horizontal"));
+  // Find source components (voltage_source, current_source)
+  const sourceCompIds: ComponentId[] = [];
+  for (const compId of subgraph.componentIds) {
+    const comp = componentMap.get(compId);
+    if (comp && SOURCE_KINDS.has(comp.kind)) {
+      sourceCompIds.push(compId);
     }
-    currentNodeId = nextNodeId;
-  });
+  }
 
-  branchEdges.forEach((edge) => {
-    const nodeA = getPhysicalNode(logicalNodeMap, edge, edge.nodeA);
-    const nodeB = getPhysicalNode(logicalNodeMap, edge, edge.nodeB);
-    if (!nodeA || !nodeB) {
-      return;
+  // BFS layer assignment
+  const visited = new Set<NodeId>();
+  const queue: Array<{ nodeId: NodeId; layer: number }> = [];
+
+  // Start from ground nodes (layer 0)
+  for (const nodeId of groundNodes) {
+    layers.set(nodeId, { layer: 0, rank: 0 });
+    visited.add(nodeId);
+  }
+
+  // Start from source non-ground-side nodes (layer 0 or 1)
+  for (const compId of sourceCompIds) {
+    const nodeIds = componentToNodes.get(compId) || [];
+    const nonGround = nodeIds.filter((nid) => !isGroundNode(nid, topology.nodes));
+    const ground = nodeIds.filter((nid) => isGroundNode(nid, topology.nodes));
+
+    for (const nid of nonGround) {
+      if (!visited.has(nid)) {
+        const srcLayer = ground.length > 0 ? 1 : 0;
+        layers.set(nid, { layer: srcLayer, rank: 0 });
+        visited.add(nid);
+        queue.push({ nodeId: nid, layer: srcLayer });
+      }
     }
-    const orientation = Math.abs(nodeA.x - nodeB.x) < Math.abs(nodeA.y - nodeB.y)
-      ? "vertical"
-      : "horizontal";
-    placed.push(placeComponentBetween(edge, nodeA, nodeB, orientation));
-  });
+    for (const nid of ground) {
+      if (!visited.has(nid)) {
+        layers.set(nid, { layer: 0, rank: 0 });
+        visited.add(nid);
+      }
+    }
+  }
 
-  return placed;
+  // If no sources, start from terminal nodes or first node
+  if (queue.length === 0 && visited.size === 0) {
+    for (const nodeId of subgraph.nodeIds) {
+      if (isTerminalLabel(nodeId)) {
+        const termLayer = nodeId.toLowerCase() === "b" ? 2 : 0;
+        layers.set(nodeId, { layer: termLayer, rank: 0 });
+        visited.add(nodeId);
+        queue.push({ nodeId, layer: termLayer });
+      }
+    }
+  }
+
+  // If still nothing, start at layer 0 with first node
+  if (queue.length === 0 && visited.size === 0) {
+    const firstNode = Array.from(subgraph.nodeIds)[0];
+    if (firstNode) {
+      layers.set(firstNode, { layer: 0, rank: 0 });
+      visited.add(firstNode);
+      queue.push({ nodeId: firstNode, layer: 0 });
+    }
+  }
+
+  // BFS from queued nodes
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    const compIds = nodeToComponents.get(current.nodeId) || [];
+
+    for (const compId of compIds) {
+      if (!subgraph.componentIds.has(compId)) continue;
+      const comp = componentMap.get(compId);
+      if (!comp) continue;
+
+      // Skip multi-terminal — handled separately
+      if (comp.terminals.length > 2) continue;
+
+      const nodeIds = componentToNodes.get(compId) || [];
+      const nextNodeId = nodeIds.find((nid) => nid !== current.nodeId);
+      if (!nextNodeId || visited.has(nextNodeId)) continue;
+
+      const nextLayer = current.layer + 1;
+      layers.set(nextNodeId, { layer: nextLayer, rank: 0 });
+      visited.add(nextNodeId);
+      queue.push({ nodeId: nextNodeId, layer: nextLayer });
+    }
+  }
+
+  // Assign remaining unvisited nodes
+  for (const nodeId of subgraph.nodeIds) {
+    if (!visited.has(nodeId)) {
+      const maxLayer = Math.max(0, ...Array.from(layers.values()).map((l) => l.layer));
+      layers.set(nodeId, { layer: maxLayer + 1, rank: 0 });
+      visited.add(nodeId);
+    }
+  }
+
+  // Assign ranks within each layer (top-to-bottom order)
+  const layerGroups = new Map<number, NodeId[]>();
+  for (const [nodeId, info] of layers) {
+    let group = layerGroups.get(info.layer);
+    if (!group) {
+      group = [];
+      layerGroups.set(info.layer, group);
+    }
+    group.push(nodeId);
+  }
+
+  for (const [, nodeIds] of layerGroups) {
+    // Sort: ground nodes at bottom, terminal 'b' near bottom, others top
+    const sorted = [...nodeIds].sort((a, b) => {
+      const aIsGround = isGroundNode(a, topology.nodes) ? 1 : 0;
+      const bIsGround = isGroundNode(b, topology.nodes) ? 1 : 0;
+      if (aIsGround !== bIsGround) return aIsGround - bIsGround;
+
+      const aIsB = normalizeLabel(a) === "b" ? 1 : 0;
+      const bIsB = normalizeLabel(b) === "b" ? 1 : 0;
+      return aIsB - bIsB;
+    });
+
+    sorted.forEach((nodeId, rank) => {
+      const info = layers.get(nodeId)!;
+      layers.set(nodeId, { ...info, rank });
+    });
+  }
+
+  return layers;
+}
+
+// ── Physical placement ──
+
+type Position = { x: number; y: number };
+type PlacedResult = {
+  nodePositions: Map<NodeId, Position>;
+  componentPlacements: CircuitComponentPlacement[];
+  terminalPlacements: CircuitTerminalPlacement[];
+  wirePlacements: CircuitWirePlacement[];
+  maxX: number;
+  maxY: number;
+};
+
+function computeDimensions(component: CircuitComponent): { w: number; h: number } {
+  if (MULTI_TERMINAL_KINDS.has(component.kind)) {
+    return { w: MULTI_TERMINAL_W, h: MULTI_TERMINAL_H };
+  }
+  if (
+    component.orientation === "vertical" ||
+    SOURCE_KINDS.has(component.kind) ||
+    CONTROLLED_SOURCE_KINDS.has(component.kind)
+  ) {
+    return { w: VERTICAL_W, h: VERTICAL_H };
+  }
+  return { w: COMPONENT_W, h: COMPONENT_H };
+}
+
+function getEffectiveOrientation(nodeA: Position, nodeB: Position, comp: CircuitComponent): ComponentOrientation {
+  if (comp.orientation === "vertical") return "vertical";
+  if (comp.orientation === "horizontal") return "horizontal";
+  const dx = Math.abs(nodeB.x - nodeA.x);
+  const dy = Math.abs(nodeB.y - nodeA.y);
+  return dy > dx * 1.2 ? "vertical" : "horizontal";
 }
 
 function sideForTerminal(
-  terminal: CircuitTerminal, orientation: ComponentOrientation): CircuitTerminal["side"] {
-  if (orientation !== "vertical") {
-    return terminal.side;
-  }
-
+  terminal: CircuitTerminal,
+  orientation: ComponentOrientation
+): CircuitTerminal["side"] {
+  if (orientation !== "vertical") return terminal.side;
   switch (terminal.side) {
-    case "left":
-      return "top";
-    case "right":
-      return "bottom";
-    case "top":
-      return "left";
-    case "bottom":
-      return "right";
+    case "left": return "top";
+    case "right": return "bottom";
+    case "top": return "left";
+    case "bottom": return "right";
   }
 }
 
@@ -485,42 +332,10 @@ function getTerminalPosition(
   const fraction = total <= 1 ? 0.5 : (index + 1) / (total + 1);
   const side = sideForTerminal(terminal, orientation);
 
-  if (side === "right") {
-    return { componentId: placement.componentId, terminalId: terminal.id, x: placement.x + placement.width, y: placement.y + placement.height * fraction };
-  }
-  if (side === "top") {
-    return { componentId: placement.componentId, terminalId: terminal.id, x: placement.x + placement.width * fraction, y: placement.y };
-  }
-  if (side === "bottom") {
-    return { componentId: placement.componentId, terminalId: terminal.id, x: placement.x + placement.width * fraction, y: placement.y + placement.height };
-  }
+  if (side === "right") return { componentId: placement.componentId, terminalId: terminal.id, x: placement.x + placement.width, y: placement.y + placement.height * fraction };
+  if (side === "top") return { componentId: placement.componentId, terminalId: terminal.id, x: placement.x + placement.width * fraction, y: placement.y };
+  if (side === "bottom") return { componentId: placement.componentId, terminalId: terminal.id, x: placement.x + placement.width * fraction, y: placement.y + placement.height };
   return { componentId: placement.componentId, terminalId: terminal.id, x: placement.x, y: placement.y + placement.height * fraction };
-}
-
-function buildTerminalPlacements(placedComponents: PlacedComponent[]): CircuitTerminalPlacement[] {
-  return placedComponents.flatMap(({ component, placement }) => {
-    const orientation = placement.orientation || component.orientation || "horizontal";
-    const bySide = new Map<CircuitTerminal["side"], CircuitTerminal[]>();
-    component.terminals.forEach((terminal) => {
-      const side = sideForTerminal(terminal, orientation);
-      const terminals = bySide.get(side) || [];
-      terminals.push(terminal);
-      bySide.set(side, terminals);
-    });
-
-    return component.terminals.map((terminal) => {
-      const side = sideForTerminal(terminal, orientation);
-      const terminals = bySide.get(side) || [];
-      const index = terminals.findIndex((candidate) => candidate.id === terminal.id);
-      return getTerminalPosition(placement, terminal, orientation, index, terminals.length);
-    });
-  });
-}
-
-function getConnectionNodeId(connections: CircuitConnection[], componentId: string, terminalId: string): string | null {
-  return connections.find(
-    (connection) => connection.componentId === componentId && connection.terminalId === terminalId
-  )?.nodeId || null;
 }
 
 function wirePath(start: CircuitPoint, end: CircuitPoint, side: CircuitTerminal["side"]): CircuitPoint[] {
@@ -529,9 +344,9 @@ function wirePath(start: CircuitPoint, end: CircuitPoint, side: CircuitTerminal[
   let stubY = start.y;
 
   if (side === "right") stubX += WIRE_STUB;
-  if (side === "left") stubX -= WIRE_STUB;
-  if (side === "top") stubY -= WIRE_STUB;
-  if (side === "bottom") stubY += WIRE_STUB;
+  else if (side === "left") stubX -= WIRE_STUB;
+  else if (side === "top") stubY -= WIRE_STUB;
+  else stubY += WIRE_STUB;
 
   if (stubX !== start.x || stubY !== start.y) {
     points.push({ x: stubX, y: stubY });
@@ -548,260 +363,345 @@ function wirePath(start: CircuitPoint, end: CircuitPoint, side: CircuitTerminal[
   return points;
 }
 
-function buildWirePlacements(
+// ── Main layout function ──
+
+function placeSubgraph(
+  subgraph: { nodeIds: Set<string>; componentIds: Set<string> },
   topology: CircuitTopology,
-  placedComponents: PlacedComponent[],
-  terminalPlacements: CircuitTerminalPlacement[],
-  logicalNodeMap: Map<string, LogicalNode>
-): CircuitWirePlacement[] {
-  const terminalPlacementMap = new Map(
-    terminalPlacements.map((placement) => [`${placement.componentId}:${placement.terminalId}`, placement])
-  );
-  const placedMap = new Map(placedComponents.map((placed) => [placed.component.id, placed]));
+  layers: LayerAssignment,
+  nodeToComponents: Map<NodeId, ComponentId[]>,
+  componentToNodes: Map<ComponentId, NodeId[]>,
+  offsetY: number
+): PlacedResult {
+  const nodePositions = new Map<NodeId, Position>();
+  const componentPlacements: CircuitComponentPlacement[] = [];
+  const terminalPlacements: CircuitTerminalPlacement[] = [];
+  const wirePlacements: CircuitWirePlacement[] = [];
+  const componentMap = new Map(topology.components.map((c) => [c.id, c]));
 
-  return topology.connections.flatMap((connection) => {
-    const placed = placedMap.get(connection.componentId);
-    const terminalPlacement = terminalPlacementMap.get(`${connection.componentId}:${connection.terminalId}`);
-    if (!placed || !terminalPlacement) {
-      return [];
+  // 1. Place nodes
+  const maxLayer = Math.max(0, ...Array.from(layers.values()).map((l) => l.layer));
+  for (const [nodeId, info] of layers) {
+    nodePositions.set(nodeId, {
+      x: PADDING_X + info.layer * LAYER_GAP_X,
+      y: offsetY + PADDING_Y + info.rank * RANK_GAP_Y,
+    });
+  }
+
+  // 2. Track parallel edges on same node pair
+  const pairCounts = new Map<string, number>();
+  const getPairKey = (nA: string, nB: string) => [nA, nB].sort().join("::");
+
+  // First pass: count parallel edges
+  const twoTermComponents: Array<{ comp: CircuitComponent; nA: NodeId; nB: NodeId }> = [];
+  const multiTermComponents: CircuitComponent[] = [];
+
+  for (const compId of subgraph.componentIds) {
+    const comp = componentMap.get(compId);
+    if (!comp) continue;
+
+    const nodeIds = componentToNodes.get(compId) || [];
+    if (comp.terminals.length <= 2 || MULTI_TERMINAL_KINDS.has(comp.kind)) {
+      if (nodeIds.length >= 2) {
+        const key = getPairKey(nodeIds[0], nodeIds[1]);
+        const count = (pairCounts.get(key) || 0) + 1;
+        pairCounts.set(key, count);
+        twoTermComponents.push({ comp, nA: nodeIds[0], nB: nodeIds[1] });
+      } else if (nodeIds.length === 1) {
+        twoTermComponents.push({ comp, nA: nodeIds[0], nB: nodeIds[0] });
+      }
+    } else {
+      multiTermComponents.push(comp);
+    }
+  }
+
+  // 3. Place two-terminal components
+  const pairOffsets = new Map<string, number>();
+  for (const { comp, nA, nB } of twoTermComponents) {
+    if (nA === nB) {
+      // Single-node component (like ground) — place at node
+      const pos = nodePositions.get(nA);
+      if (!pos) continue;
+      const dims = computeDimensions(comp);
+      componentPlacements.push({
+        componentId: comp.id,
+        x: pos.x - dims.w / 2,
+        y: pos.y + 30,
+        width: dims.w,
+        height: dims.h,
+        orientation: "vertical",
+      });
+      continue;
     }
 
-    const nodePlacement = getPhysicalNode(logicalNodeMap, placed.edge, connection.nodeId);
-    const terminal = placed.component.terminals.find((candidate) => candidate.id === connection.terminalId);
+    const posA = nodePositions.get(nA);
+    const posB = nodePositions.get(nB);
+    if (!posA || !posB) continue;
 
-    if (!nodePlacement || !terminal) {
-      return [];
+    const key = getPairKey(nA, nB);
+    const offsetIdx = pairOffsets.get(key) || 0;
+    pairOffsets.set(key, offsetIdx + 1);
+    const totalInPair = pairCounts.get(key) || 1;
+
+    const orientation = getEffectiveOrientation(posA, posB, comp);
+    const dims = computeDimensions(comp);
+
+    let cx: number;
+    let cy: number;
+
+    if (orientation === "vertical") {
+      cx = posA.x;
+      cy = (posA.y + posB.y) / 2;
+    } else {
+      cx = (posA.x + posB.x) / 2;
+      cy = (posA.y + posB.y) / 2;
     }
 
-    const orientation = placed.placement.orientation || placed.component.orientation || "horizontal";
-    const side = sideForTerminal(terminal, orientation);
-    const connectedNodeId = getConnectionNodeId(
-      topology.connections,
-      connection.componentId,
-      connection.terminalId
+    // Apply parallel offset
+    if (totalInPair > 1 && orientation === "horizontal") {
+      const offset = (offsetIdx - (totalInPair - 1) / 2) * PARALLEL_OFFSET;
+      cy += offset;
+    } else if (totalInPair > 1 && orientation === "vertical") {
+      const offset = (offsetIdx - (totalInPair - 1) / 2) * PARALLEL_OFFSET;
+      cx += offset;
+    }
+
+    const placement: CircuitComponentPlacement = {
+      componentId: comp.id,
+      x: cx - dims.w / 2,
+      y: cy - dims.h / 2,
+      width: dims.w,
+      height: dims.h,
+      orientation,
+    };
+    componentPlacements.push(placement);
+
+    // Terminal placements
+    const bySide = new Map<CircuitTerminal["side"], CircuitTerminal[]>();
+    comp.terminals.forEach((t) => {
+      const side = sideForTerminal(t, orientation);
+      let group = bySide.get(side);
+      if (!group) { group = []; bySide.set(side, group); }
+      group.push(t);
+    });
+
+    comp.terminals.forEach((terminal) => {
+      const side = sideForTerminal(terminal, orientation);
+      const group = bySide.get(side) || [];
+      const idx = group.findIndex((t) => t.id === terminal.id);
+      terminalPlacements.push(getTerminalPosition(placement, terminal, orientation, idx, group.length));
+    });
+
+    // Wire from terminals to nodes
+    const termPosA = terminalPlacements.find(
+      (tp) => tp.componentId === comp.id && tp.terminalId === comp.terminals[0]?.id
+    );
+    const termPosB = terminalPlacements.find(
+      (tp) => tp.componentId === comp.id && tp.terminalId === comp.terminals[1]?.id
     );
 
-    if (!connectedNodeId) {
-      return [];
+    if (termPosA && posA) {
+      wirePlacements.push({
+        id: `wire-${comp.id}-a`,
+        connectionId: `${comp.id}-a`,
+        points: wirePath(termPosA, posA, sideForTerminal(comp.terminals[0], orientation)),
+      });
     }
-
-    return [{
-      id: `wire-${connection.id}`,
-      connectionId: connection.id,
-      points: wirePath(terminalPlacement, nodePlacement, side),
-    }];
-  });
-}
-
-function buildParallelLeadWires(parallelEdges: ParallelEdge[], nodes: LogicalNode[]): CircuitWirePlacement[] {
-  const nodeMap = new Map(nodes.map((node) => [node.nodeId, node]));
-  return parallelEdges.flatMap(({ edge }) => {
-    const leftMain = nodeMap.get(edge.nodeA);
-    const rightMain = nodeMap.get(edge.nodeB);
-    const leftParallel = nodeMap.get(`${edge.nodeA}:parallel-${edge.component.id}`);
-    const rightParallel = nodeMap.get(`${edge.nodeB}:parallel-${edge.component.id}`);
-    if (!leftMain || !rightMain || !leftParallel || !rightParallel) {
-      return [];
+    if (termPosB && posB && comp.terminals[1]) {
+      wirePlacements.push({
+        id: `wire-${comp.id}-b`,
+        connectionId: `${comp.id}-b`,
+        points: wirePath(termPosB, posB, sideForTerminal(comp.terminals[1], orientation)),
+      });
     }
-
-    return [
-      {
-        id: `wire-${edge.component.id}-parallel-left`,
-        connectionId: `${edge.component.id}-parallel-left`,
-        points: [
-          { x: leftMain.x, y: leftMain.y },
-          { x: leftParallel.x, y: leftParallel.y },
-        ],
-      },
-      {
-        id: `wire-${edge.component.id}-parallel-right`,
-        connectionId: `${edge.component.id}-parallel-right`,
-        points: [
-          { x: rightMain.x, y: rightMain.y },
-          { x: rightParallel.x, y: rightParallel.y },
-        ],
-      },
-    ];
-  });
-}
-
-function computeBounds(
-  nodes: LogicalNode[],
-  components: CircuitComponentPlacement[],
-  wires: CircuitWirePlacement[]
-) {
-  let maxX = PADDING_X * 2;
-  let maxY = PADDING_Y * 2;
-
-  nodes.forEach((node) => {
-    maxX = Math.max(maxX, node.x + 90);
-    maxY = Math.max(maxY, node.y + 70);
-  });
-  components.forEach((component) => {
-    maxX = Math.max(maxX, component.x + component.width + 70);
-    maxY = Math.max(maxY, component.y + component.height + 70);
-  });
-  wires.forEach((wire) => {
-    wire.points.forEach((point) => {
-      maxX = Math.max(maxX, point.x + 30);
-      maxY = Math.max(maxY, point.y + 30);
-    });
-  });
-
-  return {
-    width: Math.max(520, maxX),
-    height: Math.max(360, maxY),
-  };
-}
-
-function addSyntheticTerminals(
-  topology: CircuitTopology,
-  nodes: LogicalNode[],
-  mainPath: Edge[],
-  branchEdges: Edge[]
-): LogicalNode[] {
-  const result = [...nodes];
-  const hasLabel = (label: string) =>
-    result.some((node) => normalizeLabel(node.label || node.nodeId) === label);
-  const lastTop = result
-    .filter((node) => node.y === TOP_Y)
-    .sort((left, right) => right.x - left.x)[0];
-  const bottomJunction = result
-    .filter((node) => node.y === BOTTOM_Y && node.role !== "terminal")
-    .sort((left, right) => right.x - left.x)[0];
-  const endNodeX = (lastTop?.x || SOURCE_X) + END_STUB;
-
-  if (!hasLabel("a") && mainPath.length > 0 && lastTop) {
-    result.push({
-      nodeId: `${lastTop.nodeId}:terminal-a`,
-      x: endNodeX,
-      y: TOP_Y,
-      role: "terminal",
-      label: "a",
-    });
   }
 
-  if (!hasLabel("b") && (branchEdges.length > 0 || bottomJunction)) {
-    const referenceNodeId = bottomJunction?.nodeId || result.find((node) => node.y === BOTTOM_Y)?.nodeId || "b";
-    result.push({
-      nodeId: `${referenceNodeId}:terminal-b`,
-      x: endNodeX,
-      y: BOTTOM_Y,
-      role: "terminal",
-      label: "b",
-    });
-  }
+  // 4. Place multi-terminal components
+  let multiTermY = offsetY + PADDING_Y;
+  for (const comp of multiTermComponents) {
+    const nodeIds = componentToNodes.get(comp.id) || [];
+    const dims = computeDimensions(comp);
 
-  return result;
-}
-
-function buildSyntheticWirePlacements(nodes: LogicalNode[]): CircuitWirePlacement[] {
-  const realNodes = nodes.filter((node) => !node.nodeId.includes(":terminal-"));
-  const terminalWires = nodes
-    .filter((node) => node.nodeId.includes(":terminal-"))
-    .flatMap((terminalNode) => {
-      const sourceNodeId = terminalNode.nodeId.split(":terminal-")[0];
-      const sourceNode = realNodes.find((node) => node.nodeId === sourceNodeId);
-      if (!sourceNode) {
-        return [];
+    // Find a position near connected nodes
+    let avgX = 0;
+    let avgY = multiTermY;
+    let connectedCount = 0;
+    for (const nid of nodeIds) {
+      const pos = nodePositions.get(nid);
+      if (pos) {
+        avgX += pos.x;
+        avgY = Math.max(avgY, pos.y);
+        connectedCount++;
       }
-      return [{
-        id: `wire-${terminalNode.nodeId}`,
-        connectionId: terminalNode.nodeId,
-        points: [
-          { x: sourceNode.x, y: sourceNode.y },
-          { x: terminalNode.x, y: terminalNode.y },
-        ],
-      }];
+    }
+    if (connectedCount > 0) {
+      avgX /= connectedCount;
+    } else {
+      avgX = PADDING_X + (maxLayer + 1) * LAYER_GAP_X;
+    }
+
+    const placement: CircuitComponentPlacement = {
+      componentId: comp.id,
+      x: avgX - dims.w / 2,
+      y: avgY - dims.h / 2,
+      width: dims.w,
+      height: dims.h,
+      orientation: "horizontal",
+    };
+    componentPlacements.push(placement);
+    multiTermY += dims.h + 40;
+
+    // Terminal placements
+    const orientation = "horizontal" as ComponentOrientation;
+    const bySide = new Map<CircuitTerminal["side"], CircuitTerminal[]>();
+    comp.terminals.forEach((t) => {
+      const side = sideForTerminal(t, orientation);
+      let group = bySide.get(side);
+      if (!group) { group = []; bySide.set(side, group); }
+      group.push(t);
     });
 
-  const bottomRailNodes = realNodes
-    .filter((node) => node.y === BOTTOM_Y)
-    .sort((left, right) => left.x - right.x);
+    comp.terminals.forEach((terminal) => {
+      const side = sideForTerminal(terminal, orientation);
+      const group = bySide.get(side) || [];
+      const idx = group.findIndex((t) => t.id === terminal.id);
+      terminalPlacements.push(getTerminalPosition(placement, terminal, orientation, idx, group.length));
+    });
 
-  const railWires = bottomRailNodes.length >= 2
-    ? [{
-        id: "wire-bottom-rail",
-        connectionId: "bottom-rail",
-        points: bottomRailNodes.map((node) => ({ x: node.x, y: node.y })),
-      }]
-    : [];
+    // Wire from terminals to connected nodes
+    for (const terminal of comp.terminals) {
+      const nodeMap = getComponentNodeMap(topology, comp.id);
+      const nodeId = nodeMap[terminal.id];
+      if (!nodeId) continue;
+      const nodePos = nodePositions.get(nodeId);
+      if (!nodePos) continue;
+      const termPos = terminalPlacements.find(
+        (tp) => tp.componentId === comp.id && tp.terminalId === terminal.id
+      );
+      if (!termPos) continue;
 
-  return [...railWires, ...terminalWires];
-}
-
-function nodePlacementsForCanvas(nodes: LogicalNode[]) {
-  return nodes.map((node) => ({
-    nodeId: node.nodeId,
-    x: node.x,
-    y: node.y,
-    role: node.role,
-    label: node.label,
-  }));
-}
-
-export function buildGraphCircuitLayout(topology: CircuitTopology): CircuitLayout | null {
-  const edges = getEdges(topology);
-  if (!edges || edges.length === 0) {
-    return null;
+      wirePlacements.push({
+        id: `wire-${comp.id}-${terminal.id}`,
+        connectionId: `${comp.id}-${terminal.id}`,
+        points: wirePath(termPos, nodePos, sideForTerminal(terminal, orientation)),
+      });
+    }
   }
 
-  const sourceEdge = findSource(edges);
-  if (!sourceEdge) {
-    return null;
+  // 5. Draw inter-node wires (for nodes directly connected through junctions)
+  // Nodes at same position connected via multiple components should have bus wires
+  const drawnWires = new Set<string>();
+  for (const [, pos] of nodePositions) {
+    for (const [, pos2] of nodePositions) {
+      if (pos === pos2) continue;
+      if (Math.abs(pos.x - pos2.x) < 2 && Math.abs(pos.y - pos2.y) < 2) continue;
+    }
   }
 
-  const sourceTopNodeId = chooseSourceTopNode(topology, sourceEdge);
-  const sourceBottomNodeId = otherNode(sourceEdge, sourceTopNodeId);
-  const adjacency = buildAdjacency(edges);
-  const mainPath = walkMainPath(topology, adjacency, sourceEdge, sourceTopNodeId);
-  const mainNodeIds = new Set<string>([sourceTopNodeId]);
-  let currentNodeId = sourceTopNodeId;
-  mainPath.forEach((edge) => {
-    currentNodeId = otherNode(edge, currentNodeId);
-    mainNodeIds.add(currentNodeId);
-  });
-
-  const usedComponentIds = new Set<string>([
-    sourceEdge.component.id,
-    ...mainPath.map((edge) => edge.component.id),
-  ]);
-  const branchEdges = findBranchEdges(adjacency, mainNodeIds, usedComponentIds);
-  const parallelEdges = findParallelEdges(edges, mainPath, usedComponentIds);
-  const baseLogicalNodes = createLogicalNodes(
-    topology,
-    mainPath,
-    sourceTopNodeId,
-    sourceBottomNodeId,
-    branchEdges,
-    parallelEdges
-  );
-  const logicalNodes = addSyntheticTerminals(topology, baseLogicalNodes, mainPath, branchEdges);
-  const logicalNodeMap = new Map(baseLogicalNodes.map((node) => [node.nodeId, node]));
-  const placedComponents = buildComponentPlacements(
-    sourceEdge,
-    mainPath,
-    [...branchEdges, ...parallelEdges.map((parallelEdge) => parallelEdge.edge)],
-    logicalNodeMap,
-    sourceTopNodeId,
-    sourceBottomNodeId
-  );
-  const componentPlacements = placedComponents.map((placed) => placed.placement);
-  const terminalPlacements = buildTerminalPlacements(placedComponents);
-  const realWirePlacements = buildWirePlacements(topology, placedComponents, terminalPlacements, logicalNodeMap);
-  const wirePlacements = [
-    ...realWirePlacements,
-    ...buildParallelLeadWires(parallelEdges, logicalNodes),
-    ...buildSyntheticWirePlacements(logicalNodes),
-  ];
-  const bounds = computeBounds(logicalNodes, componentPlacements, wirePlacements);
+  // 6. Compute bounds
+  let maxX = PADDING_X * 2;
+  let maxY = offsetY + PADDING_Y * 2;
+  for (const [, pos] of nodePositions) {
+    maxX = Math.max(maxX, pos.x + 80);
+    maxY = Math.max(maxY, pos.y + 40);
+  }
+  for (const cp of componentPlacements) {
+    maxX = Math.max(maxX, cp.x + cp.width + 60);
+    maxY = Math.max(maxY, cp.y + cp.height + 40);
+  }
+  for (const wp of wirePlacements) {
+    for (const pt of wp.points) {
+      maxX = Math.max(maxX, pt.x + 20);
+      maxY = Math.max(maxY, pt.y + 20);
+    }
+  }
 
   return {
-    width: bounds.width,
-    height: bounds.height,
-    nodePlacements: nodePlacementsForCanvas(logicalNodes),
+    nodePositions,
     componentPlacements,
     terminalPlacements,
     wirePlacements,
+    maxX,
+    maxY: Math.max(maxY, multiTermY + 100),
+  };
+}
+
+// ── Node placement output ──
+
+function buildNodePlacements(
+  nodePositions: Map<NodeId, Position>,
+  topology: CircuitTopology
+) {
+  const result: CircuitLayout["nodePlacements"] = [];
+  for (const [nodeId, pos] of nodePositions) {
+    const node = topology.nodes.find((n) => n.id === nodeId);
+    const isGnd = node?.kind === "ground" || isGroundNode(nodeId, topology.nodes);
+    result.push({
+      nodeId,
+      x: pos.x,
+      y: pos.y,
+      label: node?.label || nodeId,
+      role: isTerminalLabel(nodeId) ? "terminal" : isGnd ? undefined : "junction",
+    });
+  }
+  return result;
+}
+
+// ── Export ──
+
+export function buildGraphCircuitLayout(topology: CircuitTopology): CircuitLayout | null {
+  if (topology.components.length === 0 || topology.connections.length === 0) {
+    return null;
+  }
+
+  const { nodeToComponents, componentToNodes } = buildAdjacency(topology);
+  const subgraphs = findSubgraphs(topology, nodeToComponents, componentToNodes);
+
+  if (subgraphs.length === 0) return null;
+
+  const allNodePositions = new Map<NodeId, Position>();
+  const allComponentPlacements: CircuitComponentPlacement[] = [];
+  const allTerminalPlacements: CircuitTerminalPlacement[] = [];
+  const allWirePlacements: CircuitWirePlacement[] = [];
+  let globalMaxX = 0;
+  let currentY = 0;
+
+  for (const subgraph of subgraphs) {
+    const layers = assignLayers(subgraph, topology, nodeToComponents, componentToNodes);
+    const result = placeSubgraph(
+      subgraph,
+      topology,
+      layers,
+      nodeToComponents,
+      componentToNodes,
+      currentY
+    );
+
+    // Merge results
+    for (const [nodeId, pos] of result.nodePositions) {
+      allNodePositions.set(nodeId, pos);
+    }
+    allComponentPlacements.push(...result.componentPlacements);
+    allTerminalPlacements.push(...result.terminalPlacements);
+    allWirePlacements.push(...result.wirePlacements);
+    globalMaxX = Math.max(globalMaxX, result.maxX);
+    currentY = result.maxY + SUBGRAPH_GAP;
+  }
+
+  // Add any node IDs from connections that weren't placed (isolated nodes)
+  for (const [nodeId] of nodeToComponents) {
+    if (!allNodePositions.has(nodeId)) {
+      allNodePositions.set(nodeId, { x: PADDING_X, y: currentY });
+      currentY += RANK_GAP_Y;
+    }
+  }
+
+  return {
+    width: Math.max(520, globalMaxX),
+    height: Math.max(360, currentY),
+    nodePlacements: buildNodePlacements(allNodePositions, topology),
+    componentPlacements: allComponentPlacements,
+    terminalPlacements: allTerminalPlacements,
+    wirePlacements: allWirePlacements,
   };
 }

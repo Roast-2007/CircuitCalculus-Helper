@@ -66,7 +66,8 @@ export function parseKimiResponse(description: string): KimiParseResult {
       if (parsed.isCircuit === true || parsed.components || parsed.nodes || parsed.connections) {
         const topology = tryParseJsonCircuitFromData(description, parsed);
         if (topology) {
-          return { isCircuit: true, extractedText: "", topology };
+          const text = typeof parsed.extractedText === "string" ? parsed.extractedText.trim() : "";
+          return { isCircuit: true, extractedText: text, topology };
         }
       }
     } catch {

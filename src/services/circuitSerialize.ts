@@ -297,12 +297,18 @@ export function circuitTopologyToStructuredBlock(topology: CircuitTopology): str
   ].join("\n");
 }
 
-export function buildDeepSeekCircuitPrompt(
-  topology: CircuitTopology,
-  userQuestion: string,
-  notes: string
-): string {
+export function buildDeepSeekCircuitPrompt(options: {
+  topology: CircuitTopology;
+  historyText?: string;
+  surroundingText?: string;
+  userQuestion?: string;
+  notes?: string;
+}): string {
+  const { topology, historyText, surroundingText, userQuestion, notes } = options;
   return [
+    historyText || null,
+    historyText && surroundingText ? "" : null,
+    surroundingText || null,
     "请优先依据下面的结构化电路数据进行分析，并在必要时参考摘要和原始识别描述。",
     "",
     "## 结构化电路数据",

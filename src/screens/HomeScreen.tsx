@@ -16,7 +16,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { manipulateAsync, SaveFormat, ImageResult } from "expo-image-manipulator";
-import { buildDeepSeekCircuitPrompt, createCircuitTopology } from "../services/circuitSerialize";
+import { buildDeepSeekCircuitPrompt, circuitTopologyToText, createCircuitTopology } from "../services/circuitSerialize";
 import { loadAppSettings } from "../services/storage";
 import { streamVisualRecognition, streamReasoning, CancelFn } from "../services/api";
 import {
@@ -62,6 +62,38 @@ async function normalizePickedImage(uri: string) {
   };
 }
 
+function buildConversationTranscript(messages: Message[]): string {
+  if (messages.length === 0) return "";
+
+  const parts: string[] = [];
+  for (const msg of messages) {
+    if (msg.status === "error" || msg.status === "sending") continue;
+
+    if (msg.role === "user") {
+      const text = msg.content?.trim();
+      if (text || msg.image) {
+        parts.push(`用户${text ? `：${text}` : "发送了一张图片"}`);
+      }
+    } else if (msg.role === "kimi") {
+      const text = msg.content?.trim();
+      if (text) {
+        parts.push(`视觉识别结果：${text.slice(0, 500)}`);
+      }
+      if (msg.circuit) {
+        parts.push(`识别电路摘要：${circuitTopologyToText(msg.circuit).slice(0, 800)}`);
+      }
+    } else if (msg.role === "assistant") {
+      const text = msg.content?.trim();
+      if (text) {
+        parts.push(`助手回答：${text.slice(0, 600)}`);
+      }
+    }
+  }
+
+  if (parts.length === 0) return "";
+  return `## 历史对话\n\n${parts.join("\n\n")}\n\n---\n\n`;
+}
+
 export default function HomeScreen() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState("");
@@ -84,12 +116,14 @@ export default function HomeScreen() {
     topology: CircuitTopology | null;
     userText: string;
     image: string;
+    extractedText: string;
   } | null>(null);
   const [reviewEditText, setReviewEditText] = useState("");
   const [reviewNotes, setReviewNotes] = useState("");
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [switchToCircuitEdit, setSwitchToCircuitEdit] = useState(false);
   const [editingMessageCircuit, setEditingMessageCircuit] = useState<CircuitTopology | null>(null);
+  const [circuitEditorMode, setCircuitEditorMode] = useState<"message" | "manual">("message");
   const [showCircuitEditorModal, setShowCircuitEditorModal] = useState(false);
 
   const activeConversation = useMemo(
@@ -184,6 +218,7 @@ export default function HomeScreen() {
 
   const handleOpenEditor = useCallback((topology: CircuitTopology) => {
     setEditingMessageCircuit(topology);
+    setCircuitEditorMode("message");
     setShowCircuitEditorModal(true);
   }, []);
 
@@ -282,6 +317,8 @@ export default function HomeScreen() {
         mediaTypes: ["images"],
         quality: 0.9,
         base64: false,
+        allowsEditing: true,
+        aspect: [4, 3],
       });
 
       if (!result.canceled && result.assets[0]?.uri) {
@@ -302,6 +339,19 @@ export default function HomeScreen() {
   const cancelPendingImage = useCallback(() => {
     setPendingImageData(null);
   }, []);
+
+  const handleManualCircuit = useCallback(() => {
+    if (processing) return;
+    const emptyTopology = createCircuitTopology({
+      rawDescription: "",
+      components: [],
+      connections: [],
+      nodes: [],
+    });
+    setEditingMessageCircuit(emptyTopology);
+    setCircuitEditorMode("manual");
+    setShowCircuitEditorModal(true);
+  }, [processing]);
 
   const startReasoningStream = useCallback(
     async (messageId: string, problemText: string) => {
@@ -342,7 +392,14 @@ export default function HomeScreen() {
       }
 
       setShowReviewModal(false);
-      const problemText = buildDeepSeekCircuitPrompt(topology, reviewData.userText, notes);
+      const historyText = buildConversationTranscript(messages);
+      const problemText = buildDeepSeekCircuitPrompt({
+        topology,
+        historyText,
+        surroundingText: reviewData.extractedText || undefined,
+        userQuestion: reviewData.userText || undefined,
+        notes: notes || undefined,
+      });
       setProcessing(true);
 
       const aiMessageId = generateId();
@@ -357,7 +414,7 @@ export default function HomeScreen() {
 
       await startReasoningStream(aiMessageId, problemText);
     },
-    [reviewData, addMessage, startReasoningStream]
+    [reviewData, messages, addMessage, startReasoningStream]
   );
 
   const handleMessageCircuitConfirm = useCallback(
@@ -365,6 +422,9 @@ export default function HomeScreen() {
       setShowCircuitEditorModal(false);
       setEditingMessageCircuit(null);
       setProcessing(true);
+
+      const historyText = buildConversationTranscript(messages);
+      const problemText = buildDeepSeekCircuitPrompt({ topology, historyText });
 
       const aiMessageId = generateId();
       addMessage({
@@ -376,9 +436,40 @@ export default function HomeScreen() {
         status: "sending",
       });
 
-      startReasoningStream(aiMessageId, buildDeepSeekCircuitPrompt(topology, "", ""));
+      startReasoningStream(aiMessageId, problemText);
     },
-    [addMessage, startReasoningStream]
+    [messages, addMessage, startReasoningStream]
+  );
+
+  const handleManualCircuitConfirm = useCallback(
+    (topology: CircuitTopology, notes: string) => {
+      setShowCircuitEditorModal(false);
+      setEditingMessageCircuit(null);
+      setProcessing(true);
+
+      const historyText = buildConversationTranscript(messages);
+      const problemText = buildDeepSeekCircuitPrompt({
+        topology,
+        historyText,
+        userQuestion: inputText.trim() || undefined,
+        notes: notes || undefined,
+      });
+
+      setInputText("");
+
+      const aiMessageId = generateId();
+      addMessage({
+        id: aiMessageId,
+        role: "assistant",
+        content: "",
+        reasoning: "",
+        timestamp: Date.now(),
+        status: "sending",
+      });
+
+      startReasoningStream(aiMessageId, problemText);
+    },
+    [messages, inputText, addMessage, startReasoningStream]
   );
 
   const handleTextConfirm = useCallback(async () => {
@@ -448,6 +539,9 @@ export default function HomeScreen() {
         status: "sent",
       });
 
+      const historyText = buildConversationTranscript(messages);
+      const problemText = historyText ? `${historyText}\n## 当前问题\n\n${text}` : text;
+
       const aiMessageId = generateId();
       addMessage({
         id: aiMessageId,
@@ -458,7 +552,7 @@ export default function HomeScreen() {
         status: "sending",
       });
 
-      await startReasoningStream(aiMessageId, text);
+      await startReasoningStream(aiMessageId, problemText);
       return;
     }
 
@@ -525,6 +619,7 @@ export default function HomeScreen() {
             topology: result.topology,
             userText,
             image: imageBase64,
+            extractedText: result.extractedText,
           });
           setReviewEditText(fullDescription);
           setReviewNotes("");
@@ -535,7 +630,8 @@ export default function HomeScreen() {
         }
 
         const contentText = result.extractedText || fullDescription;
-        const combinedText = [contentText, userText ? `\n\n## 用户问题\n\n${userText}` : ""]
+        const historyText = buildConversationTranscript(messages);
+        const combinedText = [historyText, contentText, userText ? `\n\n## 用户问题\n\n${userText}` : ""]
           .filter(Boolean)
           .join("");
 
@@ -831,6 +927,17 @@ export default function HomeScreen() {
           >
             <Ionicons name="image-outline" size={20} color={theme.colors.mutedForeground} />
           </Pressable>
+          <Pressable
+            onPress={handleManualCircuit}
+            style={({ pressed }) => [
+              styles.iconBtn,
+              styles.circuitBtn,
+              pressed && { opacity: 0.7 },
+            ]}
+            disabled={processing}
+          >
+            <Ionicons name="git-network-outline" size={18} color={theme.colors.primary} />
+          </Pressable>
           <TextInput
             style={styles.textInput}
             value={inputText}
@@ -874,7 +981,11 @@ export default function HomeScreen() {
         {editingMessageCircuit ? (
           <CircuitEditor
             topology={editingMessageCircuit}
-            onConfirm={handleMessageCircuitConfirm}
+            onConfirm={
+              circuitEditorMode === "manual"
+                ? handleManualCircuitConfirm
+                : handleMessageCircuitConfirm
+            }
             onCancel={handleCloseCircuitEditorModal}
           />
         ) : null}
@@ -1137,6 +1248,11 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.muted,
     justifyContent: "center",
     alignItems: "center",
+  },
+  circuitBtn: {
+    backgroundColor: theme.colors.primaryMuted,
+    borderWidth: 1,
+    borderColor: `${theme.colors.primary}33`,
   },
   textInput: {
     flex: 1,

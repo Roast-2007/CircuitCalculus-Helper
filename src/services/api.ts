@@ -247,6 +247,7 @@ export function streamVisualRecognition(
           "【JSON 格式 —— 电路图（isCircuit: true）】",
           "{",
           '  "isCircuit": true,',
+          '  "extractedText": "图中除电路图外的题干文字、公式、条件和求解目标（LaTeX数学公式使用$...$括起来）",',
           '  "nodes": [{ id, label, kind }],',
           '  "components": [{ id, name, kind, value, parameters, terminals, orientation }],',
           '  "connections": [{ componentId, terminalId, nodeId }],',
