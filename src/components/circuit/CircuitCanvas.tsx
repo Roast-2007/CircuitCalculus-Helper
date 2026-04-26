@@ -90,7 +90,7 @@ export default function CircuitCanvas({
 
   const panResponder = useMemo(() => PanResponder.create({
     onStartShouldSetPanResponder: () => false,
-    onMoveShouldSetPanResponder: (_e, gs) => Math.abs(gs.dx) > 2 || Math.abs(gs.dy) > 2,
+    onMoveShouldSetPanResponderCapture: (_e, gs) => Math.abs(gs.dx) > 2 || Math.abs(gs.dy) > 2,
     onPanResponderGrant: () => {
       panX.setOffset(lastPanOffset.current.x);
       panY.setOffset(lastPanOffset.current.y);
@@ -245,7 +245,7 @@ export default function CircuitCanvas({
   );
 
   return (
-    <View style={[styles.container, compact ? styles.compactContainer : null]}>
+    <View style={[styles.container, compact && !hideChrome ? styles.compactContainer : null, hideChrome ? styles.hideChromeContainer : null]}>
       {!compact && !hideChrome ? (
         <View style={styles.toolbar}>
           <Text style={styles.toolbarHint}>拖动画布查看全貌</Text>
@@ -358,6 +358,11 @@ const styles = StyleSheet.create({
   },
   compactContainer: {
     minHeight: 220,
+  },
+  hideChromeContainer: {
+    flex: 1,
+    borderRadius: 0,
+    borderWidth: 0,
   },
   toolbar: {
     flexDirection: "row",
