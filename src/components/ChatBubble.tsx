@@ -46,6 +46,7 @@ export default function ChatBubble({ message, onRetry, onOpenEditor, visualModel
   const isCircuit = message.role === "circuit";
   const isAI = !isUser && !isKimi && !isCircuit;
   const isLoading = message.status === "sending";
+  const isReconnecting = message.status === "reconnecting";
   const isError = message.status === "error";
 
   const visualLabel = visualModelLabel || "视觉";
@@ -127,6 +128,13 @@ export default function ChatBubble({ message, onRetry, onOpenEditor, visualModel
             ) : (
               <Text style={styles.loadingText}>思考中...</Text>
             )}
+          </View>
+        ) : null}
+
+        {isReconnecting ? (
+          <View style={styles.reconnectingContainer}>
+            <ActivityIndicator size="small" color={theme.colors.kimiAccent} />
+            <Text style={styles.reconnectingText}>正在重新连接...</Text>
           </View>
         ) : null}
 
@@ -280,6 +288,16 @@ const styles = StyleSheet.create({
     color: theme.colors.mutedForeground,
     marginTop: 4,
     fontStyle: "italic",
+  },
+  reconnectingContainer: {
+    paddingVertical: theme.spacing.md,
+    alignItems: "center",
+    gap: theme.spacing.xs,
+  },
+  reconnectingText: {
+    fontSize: theme.fontSize.sm,
+    color: theme.colors.kimiAccent,
+    fontWeight: theme.fontWeight.medium,
   },
   errorContainer: {
     backgroundColor: theme.colors.destructiveMuted,

@@ -385,7 +385,8 @@ export default function HomeScreen() {
           updateMessage(messageId, { content: error.message, status: "error" });
           activeDeepSeekCancelRef.current = null;
           setProcessing(false);
-        }
+        },
+        () => updateMessage(messageId, { status: "reconnecting" })
       );
     },
     [updateMessage]
@@ -657,7 +658,8 @@ export default function HomeScreen() {
         updateMessage(kimiMessageId, { content: error.message, status: "error" });
         activeKimiCancelRef.current = null;
         setProcessing(false);
-      }
+      },
+      () => updateMessage(kimiMessageId, { status: "reconnecting" })
     );
   }, [
     inputText,

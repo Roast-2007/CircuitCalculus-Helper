@@ -5,7 +5,8 @@ export class ApiError extends Error {
   constructor(
     message: string,
     public readonly statusCode?: number,
-    public readonly provider?: string
+    public readonly provider?: string,
+    public readonly recoverable: boolean = false
   ) {
     super(message);
     this.name = "ApiError";
@@ -105,7 +106,8 @@ function startXhrStream(
           new ApiError(
             `响应超时：${Math.floor(silenceTimeoutMs / 1000)} 秒内未继续收到数据，请检查网络`,
             undefined,
-            provider
+            provider,
+            true
           )
         );
       }
@@ -153,6 +155,7 @@ function startXhrStream(
   }
 
   xhr.open("POST", url);
+  xhr.setRequestHeader("Connection", "keep-alive");
   Object.entries(headers).forEach(([key, value]) => xhr.setRequestHeader(key, value));
   xhr.responseType = "text";
 
@@ -218,7 +221,8 @@ export function streamVisualRecognition(
   mode: "general" | "circuit",
   onContent: (text: string) => void,
   onDone: () => void,
-  onError: (err: Error) => void
+  onError: (err: Error) => void,
+  onReconnecting?: () => void
 ): CancelFn {
   if (!apiKey.trim()) {
     onError(new ApiError("请先在设置中配置视觉识别 API Key", undefined, baseUrl));
@@ -290,48 +294,108 @@ export function streamVisualRecognition(
         ].join("\n")
       : "请详细描述这张图片中的数学题或电路图的所有细节。请勿遗漏任何可见信息。";
 
-  let collected = "";
+  const MAX_RETRIES = 3;
+  const BACKOFF_MS = [1000, 2000, 4000];
+  const SILENCE_TIMEOUT_VISUAL = 30_000;
 
-  return startXhrStream(
-    `${normalizeBaseUrl(baseUrl)}/chat/completions`,
-    {
-      Authorization: `Bearer ${apiKey.trim()}`,
-      "Content-Type": "application/json",
-    },
-    JSON.stringify({
-      model,
-      messages: [
-        { role: "system", content: systemPrompt },
-        {
-          role: "user",
-          content: [
-            { type: "text", text: "请识别这张图片。" },
-            { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } },
-          ],
-        },
-      ],
-      stream: true,
-      max_tokens: 8192,
-    }),
-    {
-      provider: baseUrl,
-      disableSilenceTimeout: true,
-      onData: (raw) => {
-        try {
-          const parsed = JSON.parse(raw);
-          const delta = parsed.choices?.[0]?.delta;
-          if (typeof delta?.content === "string") {
-            collected += delta.content;
-            onContent(collected);
-          }
-        } catch {
-          // skip malformed chunks
-        }
-      },
-      onDone,
-      onError,
+  let collected = "";
+  let retryCount = 0;
+  let currentAbort: ReturnType<typeof startXhrStream> | null = null;
+  let backoffTimer: ReturnType<typeof setTimeout> | null = null;
+  let cancelled = false;
+
+  function cleanUp(): void {
+    if (currentAbort) {
+      currentAbort.abort();
+      currentAbort = null;
     }
-  ).abort;
+    if (backoffTimer) {
+      clearTimeout(backoffTimer);
+      backoffTimer = null;
+    }
+  }
+
+  function tryStream(): void {
+    const messages: Array<{ role: string; content: unknown }> = [
+      { role: "system", content: systemPrompt },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "请识别这张图片。" },
+          { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } },
+        ],
+      },
+    ];
+
+    if (collected) {
+      messages.push({ role: "assistant", content: collected });
+      messages.push({ role: "user", content: "Please continue." });
+    }
+
+    currentAbort = startXhrStream(
+      `${normalizeBaseUrl(baseUrl)}/chat/completions`,
+      {
+        Authorization: `Bearer ${apiKey.trim()}`,
+        "Content-Type": "application/json",
+      },
+      JSON.stringify({
+        model,
+        messages,
+        stream: true,
+        max_tokens: 8192,
+      }),
+      {
+        provider: baseUrl,
+        disableSilenceTimeout: false,
+        silenceTimeoutMs: SILENCE_TIMEOUT_VISUAL,
+        onData: (raw) => {
+          try {
+            const parsed = JSON.parse(raw);
+            const delta = parsed.choices?.[0]?.delta;
+            if (typeof delta?.content === "string") {
+              collected += delta.content;
+              onContent(collected);
+            }
+          } catch {
+            // skip malformed chunks
+          }
+        },
+        onDone: () => {
+          cleanUp();
+          onDone();
+        },
+        onError: (err: Error) => {
+          handleStreamError(err);
+        },
+      }
+    );
+  }
+
+  function handleStreamError(err: Error): void {
+    if (cancelled) return;
+
+    if (err instanceof ApiError && err.recoverable && retryCount < MAX_RETRIES) {
+      retryCount++;
+      onReconnecting?.();
+      const delay = BACKOFF_MS[retryCount - 1];
+      backoffTimer = setTimeout(() => {
+        backoffTimer = null;
+        if (!cancelled) {
+          tryStream();
+        }
+      }, delay);
+      return;
+    }
+
+    cleanUp();
+    onError(err);
+  }
+
+  tryStream();
+  return () => {
+    cancelled = true;
+    cleanUp();
+  };
 }
 
 export function streamReasoning(
@@ -342,70 +406,131 @@ export function streamReasoning(
   onReasoning: (text: string) => void,
   onContent: (text: string) => void,
   onDone: () => void,
-  onError: (err: Error) => void
+  onError: (err: Error) => void,
+  onReconnecting?: () => void
 ): CancelFn {
   if (!apiKey.trim()) {
     onError(new ApiError("请先在设置中配置推理模型 API Key", undefined, baseUrl));
     return () => {};
   }
 
+  const SYSTEM_PROMPT =
+    "你是高等数学与电路分析领域的专家。解答用户问题时，请遵循以下原则：\n" +
+    "1. 逐步推理，条理清晰，每步有明确结论。\n" +
+    "2. 若提供了结构化电路数据，优先基于节点/网孔、等效模型、受控源关系进行分析。\n" +
+    "3. 若提供了电路量描述（quantities），请理解其命名规则：\n" +
+    "   - I_起始节点_终止节点：从起始节点流向结束节点的支路电流，路径不跨越中间节点。\n" +
+    "   - V_起始节点_终止节点：两节点间电压，可跨节点，方向从起始节点指向结束节点。\n" +
+    "   - 形如 3I1 的控制量表达式：表示 3×I1 的值，关注其与受控源的控制关系。\n" +
+    "   - 自然语言描述中会指明量所属的支路/元件和方向。\n" +
+    "4. 相信自己的判断，遇到复杂问题时逐个拆解，不反复推翻已有结论。\n" +
+    "5. 数学题使用 LaTeX 格式（$...$ 行内公式，$$...$$ 独立公式）展示公式。\n" +
+    "6. 最终答案明确给出，推理过程在前、结论在后。";
+
+  const MAX_RETRIES = 3;
+  const BACKOFF_MS = [1000, 2000, 4000];
+  const SILENCE_TIMEOUT_REASONING = 60_000;
+
   let reasoning = "";
   let content = "";
+  let retryCount = 0;
+  let currentAbort: ReturnType<typeof startXhrStream> | null = null;
+  let backoffTimer: ReturnType<typeof setTimeout> | null = null;
+  let cancelled = false;
 
-  return startXhrStream(
-    `${normalizeBaseUrl(baseUrl)}/chat/completions`,
-    {
-      Authorization: `Bearer ${apiKey.trim()}`,
-      "Content-Type": "application/json",
-    },
-    JSON.stringify({
-      model,
-      messages: [
-        {
-          role: "system",
-          content:
-            "你是高等数学与电路分析领域的专家。解答用户问题时，请遵循以下原则：\n" +
-            "1. 逐步推理，条理清晰，每步有明确结论。\n" +
-            "2. 若提供了结构化电路数据，优先基于节点/网孔、等效模型、受控源关系进行分析。\n" +
-            "3. 若提供了电路量描述（quantities），请理解其命名规则：\n" +
-            "   - I_起始节点_终止节点：从起始节点流向结束节点的支路电流，路径不跨越中间节点。\n" +
-            "   - V_起始节点_终止节点：两节点间电压，可跨节点，方向从起始节点指向结束节点。\n" +
-            "   - 形如 3I1 的控制量表达式：表示 3×I1 的值，关注其与受控源的控制关系。\n" +
-            "   - 自然语言描述中会指明量所属的支路/元件和方向。\n" +
-            "4. 相信自己的判断，遇到复杂问题时逐个拆解，不反复推翻已有结论。\n" +
-            "5. 数学题使用 LaTeX 格式（$...$ 行内公式，$$...$$ 独立公式）展示公式。\n" +
-            "6. 最终答案明确给出，推理过程在前、结论在后。",
-        },
-        { role: "user", content: problemText },
-      ],
-      stream: true,
-      reasoning_effort: "high",
-      thinking: { type: "enabled" },
-      max_tokens: 8192,
-    }),
-    {
-      provider: baseUrl,
-      disableSilenceTimeout: true,
-      onData: (raw) => {
-        try {
-          const parsed = JSON.parse(raw);
-          const delta = parsed.choices?.[0]?.delta;
-          if (typeof delta?.reasoning_content === "string") {
-            reasoning += delta.reasoning_content;
-            onReasoning(reasoning);
-          }
-          if (typeof delta?.content === "string") {
-            content += delta.content;
-            onContent(content);
-          }
-        } catch {
-          // skip malformed chunks
-        }
-      },
-      onDone,
-      onError,
+  function cleanUp(): void {
+    if (currentAbort) {
+      currentAbort.abort();
+      currentAbort = null;
     }
-  ).abort;
+    if (backoffTimer) {
+      clearTimeout(backoffTimer);
+      backoffTimer = null;
+    }
+  }
+
+  function tryStream(): void {
+    const messages: Array<{ role: string; content: string }> = [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user", content: problemText },
+    ];
+
+    const accumulated = [reasoning, content].filter(Boolean).join("\n");
+    if (accumulated) {
+      messages.push({ role: "assistant", content: accumulated });
+      messages.push({ role: "user", content: "Please continue." });
+    }
+
+    currentAbort = startXhrStream(
+      `${normalizeBaseUrl(baseUrl)}/chat/completions`,
+      {
+        Authorization: `Bearer ${apiKey.trim()}`,
+        "Content-Type": "application/json",
+      },
+      JSON.stringify({
+        model,
+        messages,
+        stream: true,
+        reasoning_effort: "high",
+        thinking: { type: "enabled" },
+        max_tokens: 8192,
+      }),
+      {
+        provider: baseUrl,
+        disableSilenceTimeout: false,
+        silenceTimeoutMs: SILENCE_TIMEOUT_REASONING,
+        onData: (raw) => {
+          try {
+            const parsed = JSON.parse(raw);
+            const delta = parsed.choices?.[0]?.delta;
+            if (typeof delta?.reasoning_content === "string") {
+              reasoning += delta.reasoning_content;
+              onReasoning(reasoning);
+            }
+            if (typeof delta?.content === "string") {
+              content += delta.content;
+              onContent(content);
+            }
+          } catch {
+            // skip malformed chunks
+          }
+        },
+        onDone: () => {
+          cleanUp();
+          onDone();
+        },
+        onError: (err: Error) => {
+          handleStreamError(err);
+        },
+      }
+    );
+  }
+
+  function handleStreamError(err: Error): void {
+    if (cancelled) return;
+
+    if (err instanceof ApiError && err.recoverable && retryCount < MAX_RETRIES) {
+      retryCount++;
+      onReconnecting?.();
+      const delay = BACKOFF_MS[retryCount - 1];
+      backoffTimer = setTimeout(() => {
+        backoffTimer = null;
+        if (!cancelled) {
+          tryStream();
+        }
+      }, delay);
+      return;
+    }
+
+    cleanUp();
+    onError(err);
+  }
+
+  tryStream();
+  return () => {
+    cancelled = true;
+    cleanUp();
+  };
 }
 
 export async function testApiConnection(

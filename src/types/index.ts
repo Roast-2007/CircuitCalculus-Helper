@@ -31,7 +31,7 @@ export interface AppSettings {
   reasoning: ProviderSelection;
 }
 
-export type MessageStatus = "sending" | "sent" | "error";
+export type MessageStatus = "sending" | "sent" | "error" | "reconnecting";
 
 export type CircuitComponentKind =
   | "resistor"
