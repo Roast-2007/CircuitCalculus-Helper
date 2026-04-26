@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -13,7 +13,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { AppSettings, ProviderPreset, ProviderSelection } from "../types";
-import { loadAppSettings, saveAppSettings } from "../services/storage";
+import { loadAppSettings, loadProviderKeys, saveAppSettings } from "../services/storage";
 import { testApiConnection } from "../services/api";
 import { getEmbeddedSettings, getEmbeddedApiKey } from "../services/embeddedKeys";
 import {
@@ -50,9 +50,15 @@ export default function SettingsScreen() {
   const [testingVisual, setTestingVisual] = useState(false);
   const [testingReasoning, setTestingReasoning] = useState(false);
 
+  const providerKeysRef = useRef<Record<string, string>>({});
+
   useEffect(() => {
     (async () => {
-      const settings = await loadAppSettings();
+      const [settings, providerKeys] = await Promise.all([
+        loadAppSettings(),
+        loadProviderKeys(),
+      ]);
+      providerKeysRef.current = providerKeys;
       setVisual(settings.visual);
       setReasoning(settings.reasoning);
       setLoaded(true);
@@ -66,6 +72,7 @@ export default function SettingsScreen() {
     (newProviderId: string) => {
       const preset = findVisualPreset(newProviderId);
       if (!preset) return;
+      const savedKey = providerKeysRef.current[newProviderId] || "";
       const embedded = getEmbeddedSettings();
       const embeddedKey =
         embedded?.visual.providerId === newProviderId
@@ -73,7 +80,7 @@ export default function SettingsScreen() {
           : getEmbeddedApiKey(newProviderId);
       setVisual({
         ...defaultSelectionForPreset(preset),
-        apiKey: embeddedKey || "",
+        apiKey: savedKey || embeddedKey || "",
       });
     },
     []
@@ -103,6 +110,7 @@ export default function SettingsScreen() {
     (newProviderId: string) => {
       const preset = findReasoningPreset(newProviderId);
       if (!preset) return;
+      const savedKey = providerKeysRef.current[newProviderId] || "";
       const embedded = getEmbeddedSettings();
       const embeddedKey =
         embedded?.reasoning.providerId === newProviderId
@@ -110,7 +118,7 @@ export default function SettingsScreen() {
           : getEmbeddedApiKey(newProviderId);
       setReasoning({
         ...defaultSelectionForPreset(preset),
-        apiKey: embeddedKey || "",
+        apiKey: savedKey || embeddedKey || "",
       });
     },
     []

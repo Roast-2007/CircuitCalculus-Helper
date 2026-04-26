@@ -6,6 +6,7 @@ import { getEmbeddedSettings, getEmbeddedApiKey } from "./embeddedKeys";
 
 const VISUAL_KEY = "app_settings_visual";
 const REASONING_KEY = "app_settings_reasoning";
+const PROVIDER_KEYS_KEY = "provider_api_keys";
 
 // 旧键（迁移用）
 const OLD_KEYS = {
@@ -45,6 +46,19 @@ function createDefaultSettings(): AppSettings {
   };
 }
 
+export async function loadProviderKeys(): Promise<Record<string, string>> {
+  try {
+    const raw = await getItem(PROVIDER_KEYS_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+async function saveProviderKeys(keys: Record<string, string>): Promise<void> {
+  await setItem(PROVIDER_KEYS_KEY, JSON.stringify(keys));
+}
+
 function mergeEmbeddedSettings(settings: AppSettings): AppSettings {
   const embedded = getEmbeddedSettings();
   if (!embedded) return settings;
@@ -57,6 +71,19 @@ function mergeEmbeddedSettings(settings: AppSettings): AppSettings {
     reasoning: {
       ...settings.reasoning,
       apiKey: settings.reasoning.apiKey || embedded.reasoning.apiKey || getEmbeddedApiKey(settings.reasoning.providerId) || "",
+    },
+  };
+}
+
+function fillProviderKeys(settings: AppSettings, providerKeys: Record<string, string>): AppSettings {
+  return {
+    visual: {
+      ...settings.visual,
+      apiKey: settings.visual.apiKey || providerKeys[settings.visual.providerId] || "",
+    },
+    reasoning: {
+      ...settings.reasoning,
+      apiKey: settings.reasoning.apiKey || providerKeys[settings.reasoning.providerId] || "",
     },
   };
 }
@@ -98,24 +125,35 @@ async function migrateFromOldKeys(): Promise<AppSettings> {
 }
 
 export async function saveAppSettings(settings: AppSettings): Promise<void> {
+  const providerKeys = await loadProviderKeys();
+  if (settings.visual.apiKey.trim()) {
+    providerKeys[settings.visual.providerId] = settings.visual.apiKey;
+  }
+  if (settings.reasoning.apiKey.trim()) {
+    providerKeys[settings.reasoning.providerId] = settings.reasoning.apiKey;
+  }
+
   await Promise.all([
     setItem(VISUAL_KEY, JSON.stringify(settings.visual)),
     setItem(REASONING_KEY, JSON.stringify(settings.reasoning)),
+    saveProviderKeys(providerKeys),
   ]);
 }
 
 export async function loadAppSettings(): Promise<AppSettings> {
-  const [visualJson, reasoningJson] = await Promise.all([
+  const [visualJson, reasoningJson, providerKeys] = await Promise.all([
     getItem(VISUAL_KEY),
     getItem(REASONING_KEY),
+    loadProviderKeys(),
   ]);
 
   if (visualJson && reasoningJson) {
     try {
-      return mergeEmbeddedSettings({
+      const merged = mergeEmbeddedSettings({
         visual: JSON.parse(visualJson),
         reasoning: JSON.parse(reasoningJson),
       });
+      return fillProviderKeys(merged, providerKeys);
     } catch {
       // fall through to migration
     }
