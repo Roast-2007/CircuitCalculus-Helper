@@ -342,7 +342,7 @@ export function streamVisualRecognition(
         model,
         messages,
         stream: true,
-        max_tokens: 8192,
+        max_tokens: 16384,
       }),
       {
         provider: baseUrl,
@@ -473,7 +473,7 @@ export function streamReasoning(
         stream: true,
         reasoning_effort: "high",
         thinking: { type: "enabled" },
-        max_tokens: 8192,
+        max_tokens: 65536,
       }),
       {
         provider: baseUrl,
