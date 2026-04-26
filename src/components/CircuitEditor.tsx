@@ -89,7 +89,7 @@ function buildValidationIssues(topology: CircuitTopology): CircuitValidationIssu
 
 function rebuildTopology(
   current: CircuitTopology,
-  overrides: Partial<Pick<CircuitTopology, "nodes" | "components" | "connections" | "controls" | "layout">>
+  overrides: Partial<Pick<CircuitTopology, "nodes" | "components" | "connections" | "controls" | "layout" | "quantities" | "quantitiesText">>
 ) {
   return createCircuitTopology({
     rawDescription: current.rawDescription,
@@ -97,6 +97,10 @@ function rebuildTopology(
     components: overrides.components ?? current.components,
     connections: overrides.connections ?? current.connections,
     controls: overrides.controls ?? current.controls,
+    quantities: overrides.quantities ?? current.quantities,
+    quantitiesText: Object.prototype.hasOwnProperty.call(overrides, "quantitiesText")
+      ? overrides.quantitiesText
+      : current.quantitiesText,
     layout: Object.prototype.hasOwnProperty.call(overrides, "layout")
       ? overrides.layout
       : current.layout,
@@ -271,6 +275,13 @@ export default function CircuitEditor({ topology, onConfirm, onCancel }: Props) 
     updateTopology((current) => rebuildTopology(current, { layout: undefined }));
   }, [updateTopology]);
 
+  const updateQuantitiesText = useCallback(
+    (text: string) => {
+      updateTopology((current) => rebuildTopology(current, { quantitiesText: text }));
+    },
+    [updateTopology]
+  );
+
   const handleConfirm = useCallback(() => {
     onConfirm(draft, notes);
   }, [draft, notes, onConfirm]);
@@ -324,6 +335,20 @@ export default function CircuitEditor({ topology, onConfirm, onCancel }: Props) 
                 {issue.level === "error" ? "错误" : "提示"} · {issue.message}
               </Text>
             ))}
+          </View>
+        ) : null}
+
+        {draft.quantities && draft.quantities.length > 0 ? (
+          <View style={styles.quantitiesCard}>
+            <Text style={styles.sectionTitle}>电路量描述</Text>
+            <TextInput
+              style={styles.quantitiesInput}
+              value={draft.quantitiesText || ""}
+              onChangeText={updateQuantitiesText}
+              placeholder="电路量描述（可编辑）..."
+              placeholderTextColor={theme.colors.mutedForeground}
+              multiline
+            />
           </View>
         ) : null}
 
@@ -795,6 +820,26 @@ const styles = StyleSheet.create({
     minHeight: 80,
     textAlignVertical: "top",
     marginBottom: theme.spacing.lg,
+    lineHeight: 20,
+  },
+  quantitiesCard: {
+    backgroundColor: theme.colors.card,
+    borderRadius: theme.radius.xl,
+    padding: theme.spacing.lg,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    marginTop: theme.spacing.md,
+  },
+  quantitiesInput: {
+    backgroundColor: theme.colors.muted,
+    borderRadius: theme.radius.md,
+    padding: theme.spacing.md,
+    fontSize: theme.fontSize.sm,
+    color: theme.colors.foreground,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    minHeight: 120,
+    textAlignVertical: "top",
     lineHeight: 20,
   },
   actionRow: { flexDirection: "row", gap: theme.spacing.md },

@@ -251,9 +251,35 @@ export function streamVisualRecognition(
           '  "nodes": [{ id, label, kind }],',
           '  "components": [{ id, name, kind, value, parameters, terminals, orientation }],',
           '  "connections": [{ componentId, terminalId, nodeId }],',
-          '  "controls": [{ sourceComponentId, controlType, positiveNodeId, negativeNodeId, controllingComponentId }]',
+          '  "controls": [{ sourceComponentId, controlType, positiveNodeId, negativeNodeId, controllingComponentId }],',
+          '  "quantities": [{ id, symbol, type, description, startNodeId, endNodeId, componentId, isControlQuantity, controllingComponentId, expression }]',
           "}",
           "  kind 可选：resistor, capacitor, inductor, voltage_source, current_source, ground, diode, bjt, mosfet, opamp, transformer, switch, probe, vcvs, vccs, ccvs, cccs, unknown。",
+          "",
+          "【电路量识别（quantities）】",
+          "如果电路图上标注了待求物理量（如 I、I1、I2、3I1、V、Vout 等），请识别并输出 quantities 数组。",
+          "命名规则：",
+          "- 优先使用图上已有的变量名（如 I1、Vout）。若图上无命名，按以下规则：",
+          "- 电流命名：I_起始节点_终止节点（如 I_N1_N2 表示从 N1 到 N2 的支路电流），禁止跨越中间节点命名。",
+          "- 电压命名：V_起始节点_终止节点（如 V_N1_N2 表示 N1 与 N2 之间的电压），可跨节点。",
+          "- 节点若无名称，用自然语言描述位置（如\"电压源正极节点\"、\"中央上方节点\"）。",
+          "- 方向始终从 startNodeId 指向 endNodeId。",
+          "- 控制量（如 3I1）：symbol 填\"3I1\"，expression 填\"3*I1\"，isControlQuantity 设为 true。",
+          "描述要求：用完整自然语言描述每个量，明确所在支路、关联节点和方向，例如\"流过电阻R1所在支路的电流I1，方向从节点N1指向节点N2\"。",
+          "",
+          "quantities 项格式：",
+          "{",
+          '  "id": "q1",',
+          '  "symbol": "I1",',
+          '  "type": "current" | "voltage" | "power" | "other",',
+          '  "description": "流过电阻R1所在支路的电流I1，方向从节点N1指向节点N2",',
+          '  "startNodeId": "N1",',
+          '  "endNodeId": "N2",',
+          '  "componentId": "R1",',
+          '  "isControlQuantity": false,',
+          '  "controllingComponentId": null,',
+          '  "expression": null',
+          "}",
           "",
           "【JSON 格式 —— 非电路内容（isCircuit: false）】",
           "{",
@@ -341,9 +367,14 @@ export function streamReasoning(
             "你是高等数学与电路分析领域的专家。解答用户问题时，请遵循以下原则：\n" +
             "1. 逐步推理，条理清晰，每步有明确结论。\n" +
             "2. 若提供了结构化电路数据，优先基于节点/网孔、等效模型、受控源关系进行分析。\n" +
-            "3. 相信自己的判断，遇到复杂问题时逐个拆解，不反复推翻已有结论。\n" +
-            "4. 数学题使用 LaTeX 格式（$...$ 行内公式，$$...$$ 独立公式）展示公式。\n" +
-            "5. 最终答案明确给出，推理过程在前、结论在后。",
+            "3. 若提供了电路量描述（quantities），请理解其命名规则：\n" +
+            "   - I_起始节点_终止节点：从起始节点流向结束节点的支路电流，路径不跨越中间节点。\n" +
+            "   - V_起始节点_终止节点：两节点间电压，可跨节点，方向从起始节点指向结束节点。\n" +
+            "   - 形如 3I1 的控制量表达式：表示 3×I1 的值，关注其与受控源的控制关系。\n" +
+            "   - 自然语言描述中会指明量所属的支路/元件和方向。\n" +
+            "4. 相信自己的判断，遇到复杂问题时逐个拆解，不反复推翻已有结论。\n" +
+            "5. 数学题使用 LaTeX 格式（$...$ 行内公式，$$...$$ 独立公式）展示公式。\n" +
+            "6. 最终答案明确给出，推理过程在前、结论在后。",
         },
         { role: "user", content: problemText },
       ],

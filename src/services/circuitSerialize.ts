@@ -6,6 +6,7 @@ import {
   CircuitElement,
   CircuitLayout,
   CircuitNode,
+  CircuitQuantity,
   CircuitTopology,
 } from "../types";
 
@@ -16,6 +17,8 @@ type CreateCircuitTopologyInput = {
   nodes?: CircuitNode[];
   controls?: CircuitControlRelation[];
   layout?: CircuitLayout;
+  quantities?: CircuitQuantity[];
+  quantitiesText?: string;
 };
 
 function normalizeNodeKind(nodeId: string): CircuitNode["kind"] {
@@ -144,6 +147,38 @@ function toLegacyElements(
   });
 }
 
+function quantitiesToText(quantities: CircuitQuantity[]): string {
+  if (quantities.length === 0) {
+    return "";
+  }
+
+  const typeLabel: Record<CircuitQuantity["type"], string> = {
+    current: "电流",
+    voltage: "电压",
+    power: "功率",
+    other: "物理量",
+  };
+
+  const lines = quantities.map((q) => {
+    const parts: string[] = [`- ${q.symbol}（${typeLabel[q.type]}）`];
+    if (q.description) {
+      parts.push(`：${q.description}`);
+    }
+    if (q.startNodeId && q.endNodeId) {
+      parts.push(`，方向：${q.startNodeId}→${q.endNodeId}`);
+    }
+    if (q.componentId) {
+      parts.push(`，关联元件：${q.componentId}`);
+    }
+    if (q.isControlQuantity && q.controllingComponentId) {
+      parts.push(`，控制受控源：${q.controllingComponentId}`);
+    }
+    return parts.join("");
+  });
+
+  return ["## 电路量描述", ...lines].join("\n");
+}
+
 export function createCircuitTopology({
   rawDescription,
   components,
@@ -151,6 +186,8 @@ export function createCircuitTopology({
   nodes = [],
   controls = [],
   layout,
+  quantities,
+  quantitiesText,
 }: CreateCircuitTopologyInput): CircuitTopology {
   const normalizedComponents = uniqueById(components.map(ensureComponentShape));
   const normalizedConnections = uniqueConnections(
@@ -177,6 +214,9 @@ export function createCircuitTopology({
       .filter((control) => control.sourceComponentId.trim())
   );
 
+  const normalizedQuantities = (quantities ?? []).map((q) => ({ ...q }));
+  const autoQuantitiesText = quantitiesText ?? quantitiesToText(normalizedQuantities);
+
   return {
     schemaVersion: "2",
     rawDescription,
@@ -186,6 +226,8 @@ export function createCircuitTopology({
     controls: normalizedControls,
     layout,
     elements: toLegacyElements(normalizedComponents, normalizedConnections),
+    quantities: normalizedQuantities,
+    quantitiesText: autoQuantitiesText || undefined,
   };
 }
 
@@ -243,6 +285,18 @@ export function getStructuredCircuitData(topology: CircuitTopology) {
       negativeNodeId: control.negativeNodeId || null,
       controllingComponentId: control.controllingComponentId || null,
     })),
+    quantities: topology.quantities?.map((q) => ({
+      id: q.id,
+      symbol: q.symbol,
+      type: q.type,
+      description: q.description,
+      startNodeId: q.startNodeId || null,
+      endNodeId: q.endNodeId || null,
+      componentId: q.componentId || null,
+      isControlQuantity: q.isControlQuantity || false,
+      controllingComponentId: q.controllingComponentId || null,
+      expression: q.expression || null,
+    })) ?? [],
   };
 }
 
@@ -281,6 +335,8 @@ export function circuitTopologyToText(topology: CircuitTopology): string {
     controlLines.length > 0 ? "" : null,
     controlLines.length > 0 ? "### 受控关系" : null,
     ...controlLines,
+    topology.quantitiesText ? "" : null,
+    topology.quantitiesText || null,
     topology.rawDescription ? "" : null,
     topology.rawDescription ? "## 原始识别描述" : null,
     topology.rawDescription || null,

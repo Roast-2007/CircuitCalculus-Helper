@@ -9,6 +9,7 @@ import {
   CircuitConnection,
   CircuitControlRelation,
   CircuitNode,
+  CircuitQuantity,
   CircuitTopology,
   ComponentOrientation,
 } from "../types";
@@ -43,6 +44,8 @@ type NormalizedJsonDocument = {
   components: CircuitComponent[];
   connections: CircuitConnection[];
   controls: CircuitControlRelation[];
+  quantities: CircuitQuantity[];
+  quantitiesText?: string;
 };
 
 export type KimiParseResult = {
@@ -100,6 +103,8 @@ function tryParseJsonCircuitFromData(description: string, data: unknown): Circui
         connections: normalized.connections,
         nodes: normalized.nodes,
         controls: normalized.controls,
+        quantities: normalized.quantities,
+        quantitiesText: normalized.quantitiesText,
       });
     }
   } catch {
@@ -154,6 +159,8 @@ function tryParseJsonCircuit(text: string): CircuitTopology | null {
           connections: normalized.connections,
           nodes: normalized.nodes,
           controls: normalized.controls,
+          quantities: normalized.quantities,
+          quantitiesText: normalized.quantitiesText,
         });
       }
     } catch {
@@ -193,8 +200,12 @@ function normalizeJsonDocument(data: unknown): NormalizedJsonDocument {
   const controls = normalizeControls(data);
   const components = normalizeComponents(data);
   const connections = normalizeConnections(data, components);
+  const quantities = normalizeQuantities(data);
   const isCircuit = objectData.isCircuit === true;
   const extractedText = typeof objectData.extractedText === "string" ? objectData.extractedText : "";
+  const quantitiesText = typeof objectData.quantitiesText === "string"
+    ? objectData.quantitiesText
+    : undefined;
 
   return {
     isCircuit,
@@ -203,6 +214,8 @@ function normalizeJsonDocument(data: unknown): NormalizedJsonDocument {
     components,
     connections,
     controls,
+    quantities,
+    quantitiesText,
   };
 }
 
@@ -295,6 +308,59 @@ function normalizeControl(rawControl: unknown, index: number): CircuitControlRel
     controllingComponentId: stringOrUndefined(
       control.controllingComponentId || control.controlComponent || control.branch
     ),
+  };
+}
+
+function normalizeQuantities(data: unknown): CircuitQuantity[] {
+  if (!data || typeof data !== "object") {
+    return [];
+  }
+
+  const objectData = data as Record<string, unknown>;
+  const rawQuantities =
+    (Array.isArray(objectData.quantities) ? objectData.quantities : null) ||
+    (Array.isArray(objectData.variables) ? objectData.variables : null) ||
+    [];
+
+  return rawQuantities
+    .map((raw, index) => normalizeQuantity(raw, index))
+    .filter(Boolean) as CircuitQuantity[];
+}
+
+function normalizeQuantity(raw: unknown, index: number): CircuitQuantity | null {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+
+  const q = raw as Record<string, unknown>;
+  const symbol = String(q.symbol || q.name || q.label || `Q${index + 1}`).trim();
+  if (!symbol) {
+    return null;
+  }
+
+  const typeRaw = String(q.type || q.kind || "other").trim().toLowerCase();
+  let type: CircuitQuantity["type"] = "other";
+  if (typeRaw.includes("current") || typeRaw === "i") {
+    type = "current";
+  } else if (typeRaw.includes("voltage") || typeRaw === "v") {
+    type = "voltage";
+  } else if (typeRaw.includes("power") || typeRaw === "p") {
+    type = "power";
+  }
+
+  return {
+    id: String(q.id || `qty-${index + 1}`),
+    symbol,
+    type,
+    description: String(q.description || q.desc || "").trim(),
+    startNodeId: stringOrUndefined(q.startNodeId || q.startNode || q.fromNode),
+    endNodeId: stringOrUndefined(q.endNodeId || q.endNode || q.toNode),
+    componentId: stringOrUndefined(q.componentId || q.component || q.branchId),
+    isControlQuantity: Boolean(q.isControlQuantity || q.isControl),
+    controllingComponentId: stringOrUndefined(
+      q.controllingComponentId || q.controlComponent || q.dependentSourceId
+    ),
+    expression: stringOrUndefined(q.expression || q.expr),
   };
 }
 

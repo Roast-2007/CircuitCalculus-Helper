@@ -104,6 +104,19 @@ export type CircuitControlRelation = {
   controllingComponentId?: string;
 };
 
+export type CircuitQuantity = {
+  id: string;
+  symbol: string;
+  type: "current" | "voltage" | "power" | "other";
+  description: string;
+  startNodeId?: string;
+  endNodeId?: string;
+  componentId?: string;
+  isControlQuantity?: boolean;
+  controllingComponentId?: string;
+  expression?: string;
+};
+
 export type CircuitPoint = {
   x: number;
   y: number;
@@ -169,6 +182,8 @@ export type CircuitTopology = {
   controls: CircuitControlRelation[];
   layout?: CircuitLayout;
   elements: CircuitElement[];
+  quantities?: CircuitQuantity[];
+  quantitiesText?: string;
 };
 
 export type CircuitDocument = CircuitTopology;
