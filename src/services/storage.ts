@@ -37,7 +37,7 @@ async function deleteItem(key: string): Promise<void> {
 }
 
 function createDefaultSettings(): AppSettings {
-  const visualPreset = findVisualPreset("siliconflow")!;
+  const visualPreset = findVisualPreset("alibaba_bailian")!;
   const reasoningPreset = findReasoningPreset("deepseek")!;
   return {
     visual: defaultSelectionForPreset(visualPreset),

@@ -10,6 +10,7 @@ type Props = {
   message: Message;
   onRetry?: (msg: Message) => void;
   onOpenEditor?: (topology: CircuitTopology) => void;
+  visualModelLabel?: string;
 };
 
 function CircuitPreview({ message, onOpenEditor }: { message: Message; onOpenEditor?: (topology: CircuitTopology) => void }) {
@@ -38,7 +39,7 @@ function CircuitPreview({ message, onOpenEditor }: { message: Message; onOpenEdi
   );
 }
 
-export default function ChatBubble({ message, onRetry, onOpenEditor }: Props) {
+export default function ChatBubble({ message, onRetry, onOpenEditor, visualModelLabel }: Props) {
   const [showReasoning, setShowReasoning] = useState(true);
   const isUser = message.role === "user";
   const isKimi = message.role === "kimi";
@@ -47,13 +48,14 @@ export default function ChatBubble({ message, onRetry, onOpenEditor }: Props) {
   const isLoading = message.status === "sending";
   const isError = message.status === "error";
 
+  const visualLabel = visualModelLabel || "视觉";
   let avatarLabel = "AI";
   let avatarColor: string = theme.colors.primary;
   if (isUser) {
     avatarLabel = "U";
     avatarColor = theme.colors.foreground;
   } else if (isKimi) {
-    avatarLabel = "K";
+    avatarLabel = visualLabel.charAt(0).toUpperCase();
     avatarColor = theme.colors.kimiAccent;
   } else if (isCircuit) {
     avatarLabel = "C";
@@ -69,7 +71,7 @@ export default function ChatBubble({ message, onRetry, onOpenEditor }: Props) {
       )}
 
       <View style={[styles.bubble, isUser ? styles.userBubble : styles.aiBubble]}>
-        {isKimi && <Text style={styles.roleLabel}>Kimi 识别</Text>}
+        {isKimi && <Text style={styles.roleLabel}>{visualLabel} 识别</Text>}
         {isCircuit && <Text style={styles.roleLabel}>电路拓扑</Text>}
 
         {message.image && (

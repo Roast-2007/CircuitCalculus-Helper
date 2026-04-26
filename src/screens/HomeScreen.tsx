@@ -110,6 +110,7 @@ export default function HomeScreen() {
   const activeDeepSeekCancelRef = useRef<CancelFn | null>(null);
   const saveAlertShownRef = useRef(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [visualModelLabel, setVisualModelLabel] = useState("视觉");
 
   const [reviewData, setReviewData] = useState<{
     description: string;
@@ -231,16 +232,22 @@ export default function HomeScreen() {
     let alive = true;
 
     (async () => {
-      const [conversationState, [camera, media]] = await Promise.all([
+      const [conversationState, [camera, media], settings] = await Promise.all([
         loadConversationState(),
         Promise.all([
           ImagePicker.requestCameraPermissionsAsync(),
           ImagePicker.requestMediaLibraryPermissionsAsync(),
         ]),
+        loadAppSettings().catch(() => null),
       ]);
 
       if (!alive) {
         return;
+      }
+
+      if (settings) {
+        const vPreset = findVisualPreset(settings.visual.providerId);
+        setVisualModelLabel(resolveModel(settings.visual, vPreset) || "视觉");
       }
 
       setConversations(conversationState.conversations);
@@ -740,9 +747,9 @@ export default function HomeScreen() {
 
   const renderItem = useCallback(
     ({ item }: { item: Message }) => (
-      <ChatBubble message={item} onRetry={retryMessage} onOpenEditor={handleOpenEditor} />
+      <ChatBubble message={item} onRetry={retryMessage} onOpenEditor={handleOpenEditor} visualModelLabel={visualModelLabel} />
     ),
-    [retryMessage, handleOpenEditor]
+    [retryMessage, handleOpenEditor, visualModelLabel]
   );
 
   const handleContentSizeChange = useCallback(() => {
