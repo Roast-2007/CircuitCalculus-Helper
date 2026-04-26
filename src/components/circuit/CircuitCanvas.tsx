@@ -1,9 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import {
-  Animated,
   Modal,
-  PanResponder,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   useWindowDimensions,
@@ -72,44 +71,8 @@ export default function CircuitCanvas({
 
   const [fullscreenVisible, setFullscreenVisible] = useState(false);
 
-  const panX = useRef(new Animated.Value(0)).current;
-  const panY = useRef(new Animated.Value(0)).current;
-  const lastPanOffset = useRef({ x: 0, y: 0 });
-
-  const resetPan = useCallback(() => {
-    panX.setValue(0);
-    panY.setValue(0);
-    panX.setOffset(0);
-    panY.setOffset(0);
-    lastPanOffset.current = { x: 0, y: 0 };
-  }, [panX, panY]);
-
-  useEffect(() => {
-    resetPan();
-  }, [initialScale, resetPan]);
-
-  const panResponder = useMemo(() => PanResponder.create({
-    onStartShouldSetPanResponder: () => false,
-    onMoveShouldSetPanResponderCapture: (_e, gs) => Math.abs(gs.dx) > 2 || Math.abs(gs.dy) > 2,
-    onPanResponderGrant: () => {
-      panX.setOffset(lastPanOffset.current.x);
-      panY.setOffset(lastPanOffset.current.y);
-      panX.setValue(0);
-      panY.setValue(0);
-    },
-    onPanResponderMove: Animated.event(
-      [null, { dx: panX, dy: panY }],
-      { useNativeDriver: false }
-    ),
-    onPanResponderRelease: (_e, gs) => {
-      lastPanOffset.current = {
-        x: lastPanOffset.current.x + gs.dx,
-        y: lastPanOffset.current.y + gs.dy,
-      };
-      panX.flattenOffset();
-      panY.flattenOffset();
-    },
-  }), [panX, panY]);
+  const horizontalScrollRef = useRef<ScrollView>(null);
+  const verticalScrollRef = useRef<ScrollView>(null);
 
   const summaryLines = topology.components.slice(0, compact ? 0 : 4);
   const connectedTerminalKeys = useMemo(
@@ -137,6 +100,11 @@ export default function CircuitCanvas({
     })),
     [layout.wirePlacements]
   );
+
+  const scrollToOrigin = () => {
+    horizontalScrollRef.current?.scrollTo({ x: 0, animated: true });
+    verticalScrollRef.current?.scrollTo({ y: 0, animated: true });
+  };
 
   const renderCircuitContent = () => (
     <View style={{ width: Math.max(contentWidth, viewportWidth), height: Math.max(contentHeight, viewportHeight) }}>
@@ -251,7 +219,7 @@ export default function CircuitCanvas({
           <Text style={styles.toolbarHint}>拖动画布查看全貌</Text>
           <View style={styles.toolbarActions}>
             <Pressable
-              onPress={resetPan}
+              onPress={scrollToOrigin}
               style={({ pressed }) => [
                 styles.fitButton,
                 pressed && { opacity: 0.7 },
@@ -289,16 +257,33 @@ export default function CircuitCanvas({
               ? styles.compactViewport
               : { height: viewportHeight },
         ]}
-        {...panResponder.panHandlers}
       >
-        <Animated.View
-          style={{
-            transform: [{ translateX: panX }, { translateY: panY }],
-          }}
-          pointerEvents="box-none"
+        <ScrollView
+          ref={verticalScrollRef}
+          style={styles.scrollFill}
+          contentContainerStyle={[
+            styles.verticalScrollContent,
+            { minHeight: Math.max(contentHeight, viewportHeight) },
+          ]}
+          showsVerticalScrollIndicator={!compact}
+          nestedScrollEnabled
+          maximumZoomScale={1}
+          minimumZoomScale={1}
         >
-          {renderCircuitContent()}
-        </Animated.View>
+          <ScrollView
+            ref={horizontalScrollRef}
+            horizontal
+            style={[styles.horizontalScroll, { height: Math.max(contentHeight, viewportHeight) }]}
+            contentContainerStyle={[
+              styles.horizontalScrollContent,
+              { minWidth: Math.max(contentWidth, viewportWidth), minHeight: Math.max(contentHeight, viewportHeight) },
+            ]}
+            showsHorizontalScrollIndicator={!compact}
+            nestedScrollEnabled
+          >
+            {renderCircuitContent()}
+          </ScrollView>
+        </ScrollView>
       </View>
 
       {!compact && !hideChrome ? (
@@ -438,6 +423,18 @@ const styles = StyleSheet.create({
   },
   fullscreenViewport: {
     flex: 1,
+  },
+  scrollFill: {
+    flexGrow: 0,
+  },
+  horizontalScroll: {
+    flexGrow: 0,
+  },
+  verticalScrollContent: {
+    flexGrow: 0,
+  },
+  horizontalScrollContent: {
+    flexGrow: 0,
   },
   overlay: {
     ...StyleSheet.absoluteFillObject,
