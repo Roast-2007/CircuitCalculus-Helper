@@ -109,28 +109,6 @@ npx expo run:android
 android/app/build/outputs/apk/release/app-release.apk
 ```
 
-当前本机路径：
-
-```text
-E:\Personal Files\ocr-math\android\app\build\outputs\apk\release\app-release.apk
-```
-
-## API 配置
-
-应用内需要用户自行配置：
-
-- DeepSeek API Key
-- SiliconFlow API Key
-- DeepSeek 模型名
-- SiliconFlow 模型名
-
-默认模型：
-
-- DeepSeek：`deepseek-v4-pro`
-- SiliconFlow：`Pro/moonshotai/Kimi-K2.6`
-
-不要把真实 API Key 提交到仓库。
-
 ## 使用建议
 
 - 建议使用「全能扫描王」等工具预处理图片后再上传，可提升识别准确率。
