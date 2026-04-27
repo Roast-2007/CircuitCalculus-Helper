@@ -45,7 +45,7 @@ function fitScale(width: number, height: number, maxWidth: number, maxHeight: nu
 }
 
 function truncateLabel(value: string, compact: boolean) {
-  const maxLength = compact ? 6 : 10;
+  const maxLength = compact ? 10 : 16;
   return value.length > maxLength ? `${value.slice(0, maxLength)}…` : value;
 }
 
@@ -189,7 +189,7 @@ export default function CircuitCanvas({
                     <SvgText
                       x={placement.x + (isTerminal ? 14 : 8)}
                       y={placement.y + (isTerminal ? 4 : -8)}
-                      fontSize={isTerminal ? 14 : 10}
+                      fontSize={isTerminal ? 16 : 12}
                       fill={isTerminal ? theme.colors.circuitNode : theme.colors.circuitNodeLabel}
                       fontWeight={isTerminal ? "700" : "600"}
                     >

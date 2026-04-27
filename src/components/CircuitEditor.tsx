@@ -321,6 +321,8 @@ export default function CircuitEditor({ topology, onConfirm, onCancel }: Props) 
           onSelectComponent={setSelectedComponentId}
         />
 
+        <Text style={styles.landscapeHint}>全屏后可横屏观看，更加直观</Text>
+
         {validationIssues.length > 0 ? (
           <View style={styles.issueCard}>
             <Text style={styles.issueTitle}>拓扑检查</Text>
@@ -626,6 +628,12 @@ const styles = StyleSheet.create({
     fontWeight: theme.fontWeight.semibold,
     color: theme.colors.foreground,
     marginBottom: theme.spacing.md,
+    marginTop: theme.spacing.sm,
+  },
+  landscapeHint: {
+    fontSize: theme.fontSize.xs,
+    color: theme.colors.mutedForeground,
+    textAlign: "center",
     marginTop: theme.spacing.sm,
   },
   relayoutButton: {
