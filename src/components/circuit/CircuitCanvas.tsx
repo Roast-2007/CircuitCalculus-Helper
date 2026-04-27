@@ -171,7 +171,7 @@ export default function CircuitCanvas({
         scrollEventThrottle={16}
       >
         <View style={{ width: Math.max(contentWidth, viewportWidth), height: NODE_HEADER_HEIGHT }}>
-          <Svg width={contentWidth} height={NODE_HEADER_HEIGHT} viewBox={`0 0 ${layout.width} ${layout.height}`}>
+          <Svg width={contentWidth} height={NODE_HEADER_HEIGHT} viewBox={`0 0 ${layout.width} ${layout.height}`} preserveAspectRatio="xMinYMin slice">
             {visibleNodePlacements.map((placement) => {
               const node = nodeMap.get(placement.nodeId);
               const isGround = node?.kind === "ground";
