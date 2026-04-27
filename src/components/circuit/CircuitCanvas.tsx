@@ -1,5 +1,6 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Alert,
   Modal,
   Pressable,
   ScrollView,
@@ -9,6 +10,7 @@ import {
   View,
 } from "react-native";
 import Svg, { Circle, Path, Text as SvgText } from "react-native-svg";
+import * as ScreenOrientation from "expo-screen-orientation";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "../../theme";
 import { CircuitTopology } from "../../types";
@@ -62,17 +64,45 @@ export default function CircuitCanvas({
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const viewportWidth = Math.max(220, windowWidth - (compact ? 112 : 40));
   const viewportHeight = hideChrome ? Math.max(200, windowHeight - 120) : compact ? 190 : 320;
+  const NODE_HEADER_HEIGHT = compact ? 0 : 56;
+  const adjustedViewportHeight = compact ? viewportHeight : viewportHeight - NODE_HEADER_HEIGHT;
   const initialScale = compact
     ? COMPACT_SCALE
-    : fitScale(layout.width, layout.height, viewportWidth - 24, viewportHeight - 24);
+    : fitScale(layout.width, layout.height, viewportWidth - 24, adjustedViewportHeight - 24);
 
   const contentWidth = layout.width * initialScale;
   const contentHeight = layout.height * initialScale;
 
   const [fullscreenVisible, setFullscreenVisible] = useState(false);
 
+  const nodeHScrollRef = useRef<ScrollView>(null);
   const horizontalScrollRef = useRef<ScrollView>(null);
   const verticalScrollRef = useRef<ScrollView>(null);
+  const isSyncing = useRef(false);
+
+  // Orientation: unlock in fullscreen, re-lock on exit
+  useEffect(() => {
+    if (fullscreenVisible) {
+      ScreenOrientation.unlockAsync();
+      return () => {
+        ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
+      };
+    }
+  }, [fullscreenVisible]);
+
+  const syncHorizontalScrolls = useCallback((source: "node" | "content", x: number) => {
+    if (isSyncing.current) return;
+    isSyncing.current = true;
+    if (source === "node") {
+      horizontalScrollRef.current?.scrollTo({ x, animated: false });
+    } else {
+      nodeHScrollRef.current?.scrollTo({ x, animated: false });
+    }
+    // Release guard after a short delay to allow the other onScroll to fire
+    setTimeout(() => {
+      isSyncing.current = false;
+    }, 16);
+  }, []);
 
   const summaryLines = topology.components.slice(0, compact ? 0 : 4);
   const connectedTerminalKeys = useMemo(
@@ -102,11 +132,101 @@ export default function CircuitCanvas({
   );
 
   const scrollToOrigin = () => {
+    nodeHScrollRef.current?.scrollTo({ x: 0, animated: true });
     horizontalScrollRef.current?.scrollTo({ x: 0, animated: true });
     verticalScrollRef.current?.scrollTo({ y: 0, animated: true });
   };
 
-  const renderCircuitContent = () => (
+  const visibleNodePlacements = useMemo(
+    () =>
+      layout.nodePlacements.filter(
+        (placement) => placement.role !== "hidden" && connectedNodeIds.has(placement.nodeId)
+      ),
+    [layout.nodePlacements, connectedNodeIds]
+  );
+
+  const handleNodePress = useCallback(
+    (placement: (typeof visibleNodePlacements)[number]) => {
+      const node = nodeMap.get(placement.nodeId);
+      const label = placement.label || node?.label || node?.id || placement.nodeId;
+      Alert.alert("节点名称", label, [{ text: "确定" }]);
+    },
+    [nodeMap]
+  );
+
+  const renderNodeHeader = () => (
+    <View style={styles.nodeHeader}>
+      <ScrollView
+        ref={nodeHScrollRef}
+        horizontal
+        style={styles.nodeHeaderScroll}
+        contentContainerStyle={[
+          styles.nodeHeaderScrollContent,
+          { minWidth: Math.max(contentWidth, viewportWidth), minHeight: NODE_HEADER_HEIGHT },
+        ]}
+        showsHorizontalScrollIndicator={false}
+        scrollEnabled={!compact}
+        nestedScrollEnabled
+        onScroll={(e) => syncHorizontalScrolls("node", e.nativeEvent.contentOffset.x)}
+        scrollEventThrottle={16}
+      >
+        <View style={{ width: Math.max(contentWidth, viewportWidth), height: NODE_HEADER_HEIGHT }}>
+          <Svg width={contentWidth} height={NODE_HEADER_HEIGHT} viewBox={`0 0 ${layout.width} ${layout.height}`}>
+            {visibleNodePlacements.map((placement) => {
+              const node = nodeMap.get(placement.nodeId);
+              const isGround = node?.kind === "ground";
+              const isTerminal = placement.role === "terminal";
+              const label = placement.label || node?.label;
+              return (
+                <React.Fragment key={`${placement.nodeId}:${placement.x}:${placement.y}`}>
+                  <Circle
+                    cx={placement.x}
+                    cy={placement.y}
+                    r={isTerminal ? 6 : isGround ? 5 : 4}
+                    fill={isGround ? theme.colors.circuitGround : isTerminal ? theme.colors.circuitNode : theme.colors.circuitNode}
+                  />
+                  {label ? (
+                    <SvgText
+                      x={placement.x + (isTerminal ? 14 : 8)}
+                      y={placement.y + (isTerminal ? 4 : -8)}
+                      fontSize={isTerminal ? 14 : 10}
+                      fill={isTerminal ? theme.colors.circuitNode : theme.colors.circuitNodeLabel}
+                      fontWeight={isTerminal ? "700" : "600"}
+                    >
+                      {truncateLabel(label, false)}
+                    </SvgText>
+                  ) : null}
+                </React.Fragment>
+              );
+            })}
+          </Svg>
+          <View pointerEvents="box-none" style={styles.nodeOverlay}>
+            {visibleNodePlacements.map((placement) => {
+              const node = nodeMap.get(placement.nodeId);
+              const label = placement.label || node?.label;
+              if (!label || label.length <= 10) return null;
+              return (
+                <Pressable
+                  key={`tap-${placement.nodeId}:${placement.x}:${placement.y}`}
+                  onPress={() => handleNodePress(placement)}
+                  style={({ pressed }) => [
+                    styles.nodeTouchTarget,
+                    {
+                      left: placement.x * initialScale - 14,
+                      top: placement.y * initialScale - 14,
+                    },
+                    pressed && { opacity: 0.6 },
+                  ]}
+                />
+              );
+            })}
+          </View>
+        </View>
+      </ScrollView>
+    </View>
+  );
+
+  const renderScrollableContent = () => (
     <View style={{ width: Math.max(contentWidth, viewportWidth), height: Math.max(contentHeight, viewportHeight) }}>
       <Svg width={contentWidth} height={contentHeight} viewBox={`0 0 ${layout.width} ${layout.height}`}>
         {wirePaths.map(({ wire, d }) => {
@@ -125,36 +245,6 @@ export default function CircuitCanvas({
             />
           );
         })}
-
-        {layout.nodePlacements
-          .filter((placement) => placement.role !== "hidden" && connectedNodeIds.has(placement.nodeId))
-          .map((placement) => {
-            const node = nodeMap.get(placement.nodeId);
-            const isGround = node?.kind === "ground";
-            const isTerminal = placement.role === "terminal";
-            const label = placement.label || node?.label;
-            return (
-              <React.Fragment key={`${placement.nodeId}:${placement.x}:${placement.y}`}>
-                <Circle
-                  cx={placement.x}
-                  cy={placement.y}
-                  r={isTerminal ? (compact ? 5 : 6) : isGround ? 5 : 4}
-                  fill={isGround ? theme.colors.circuitGround : isTerminal ? theme.colors.circuitNode : theme.colors.circuitNode}
-                />
-                {label ? (
-                  <SvgText
-                    x={placement.x + (isTerminal ? 14 : 8)}
-                    y={placement.y + (isTerminal ? 4 : -8)}
-                    fontSize={compact ? 10 : isTerminal ? 15 : 11}
-                    fill={isTerminal ? theme.colors.circuitNode : theme.colors.circuitNodeLabel}
-                    fontWeight={isTerminal ? "700" : "600"}
-                  >
-                    {truncateLabel(label, compact)}
-                  </SvgText>
-                ) : null}
-              </React.Fragment>
-            );
-          })}
 
         {layout.terminalPlacements
           .filter((placement) => !connectedTerminalKeys.has(terminalKey(placement.componentId, placement.terminalId)))
@@ -258,12 +348,13 @@ export default function CircuitCanvas({
               : { height: viewportHeight },
         ]}
       >
+        {!compact ? renderNodeHeader() : null}
         <ScrollView
           ref={verticalScrollRef}
           style={styles.scrollFill}
           contentContainerStyle={[
             styles.verticalScrollContent,
-            { minHeight: Math.max(contentHeight, viewportHeight) },
+            { minHeight: Math.max(contentHeight, adjustedViewportHeight) },
           ]}
           showsVerticalScrollIndicator={!compact}
           nestedScrollEnabled
@@ -273,15 +364,17 @@ export default function CircuitCanvas({
           <ScrollView
             ref={horizontalScrollRef}
             horizontal
-            style={[styles.horizontalScroll, { height: Math.max(contentHeight, viewportHeight) }]}
+            style={[styles.horizontalScroll, { height: Math.max(contentHeight, adjustedViewportHeight) }]}
             contentContainerStyle={[
               styles.horizontalScrollContent,
-              { minWidth: Math.max(contentWidth, viewportWidth), minHeight: Math.max(contentHeight, viewportHeight) },
+              { minWidth: Math.max(contentWidth, viewportWidth), minHeight: Math.max(contentHeight, adjustedViewportHeight) },
             ]}
             showsHorizontalScrollIndicator={!compact}
             nestedScrollEnabled
+            onScroll={!compact ? (e) => syncHorizontalScrolls("content", e.nativeEvent.contentOffset.x) : undefined}
+            scrollEventThrottle={16}
           >
-            {renderCircuitContent()}
+            {renderScrollableContent()}
           </ScrollView>
         </ScrollView>
       </View>
@@ -438,6 +531,26 @@ const styles = StyleSheet.create({
   },
   overlay: {
     ...StyleSheet.absoluteFillObject,
+  },
+  nodeHeader: {
+    backgroundColor: theme.colors.circuitCardBg,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+  },
+  nodeHeaderScroll: {
+    flexGrow: 0,
+  },
+  nodeHeaderScrollContent: {
+    flexGrow: 0,
+  },
+  nodeOverlay: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  nodeTouchTarget: {
+    position: "absolute",
+    width: 28,
+    height: 28,
+    borderRadius: 14,
   },
   componentCard: {
     position: "absolute",
