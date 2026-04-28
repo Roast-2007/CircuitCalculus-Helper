@@ -593,12 +593,11 @@ export default function SettingsScreen() {
         <View style={styles.infoSection}>
           <Text style={styles.infoTitle}>使用说明</Text>
           <Text style={styles.infoText}>
-            1. 选择视觉识别模型的供应商和模型{'\n'}
-            2. 填写对应的 API Key{'\n'}
-            3. 选择推理模型的供应商和模型{'\n'}
-            4. 填写对应的 API Key{'\n'}
-            5. 拍照上传数学题或电路图开始使用{'\n'}
-            6. 增强型模型适合复杂题目，快速型模型适合简单题
+            1. 推荐使用代理登录：输入学号和身份证后四位，无需自行配置 API Key{'\n'}
+            2. 或手动配置：选择视觉识别模型供应商和模型，填写 API Key{'\n'}
+            3. 选择推理模型供应商和模型，填写 API Key{'\n'}
+            4. 拍照上传数学题或电路图开始使用{'\n'}
+            5. 增强型模型适合复杂题目，快速型模型适合简单题
           </Text>
         </View>
 
