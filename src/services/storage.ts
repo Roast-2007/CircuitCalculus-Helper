@@ -102,6 +102,10 @@ async function migrateFromOldKeys(): Promise<AppSettings> {
 
   const defaults = createDefaultSettings();
 
+  // 没有旧键数据则直接返回默认配置（全新安装）
+  const hasOldKeys = !!(deepseekKey || siliconflowKey || deepseekModel || siliconflowModel);
+  if (!hasOldKeys) return defaults;
+
   const settings: AppSettings = {
     visual: {
       ...defaults.visual,
