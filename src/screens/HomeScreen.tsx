@@ -17,7 +17,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { manipulateAsync, SaveFormat, ImageResult } from "expo-image-manipulator";
 import { buildDeepSeekCircuitPrompt, circuitTopologyToText, createCircuitTopology } from "../services/circuitSerialize";
-import { loadAppSettings } from "../services/storage";
+import { loadAppSettings, getProxyAuthState } from "../services/storage";
 import { streamVisualRecognition, streamReasoning, CancelFn } from "../services/api";
 import {
   findVisualPreset,
@@ -35,7 +35,7 @@ import {
   summarizeConversation,
   upsertConversationMessages,
 } from "../services/conversationStorage";
-import { Conversation, CircuitTopology, Message } from "../types";
+import { Conversation, CircuitTopology, Message, ProxyAuthState } from "../types";
 import { theme } from "../theme";
 import ChatBubble from "../components/ChatBubble";
 import CircuitEditor from "../components/CircuitEditor";
@@ -108,6 +108,7 @@ export default function HomeScreen() {
   const flatListRef = useRef<FlatList<Message>>(null);
   const activeKimiCancelRef = useRef<CancelFn | null>(null);
   const activeDeepSeekCancelRef = useRef<CancelFn | null>(null);
+  const proxyAuthRef = useRef<ProxyAuthState | null>(null);
   const saveAlertShownRef = useRef(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [visualModelLabel, setVisualModelLabel] = useState("视觉");
@@ -233,18 +234,21 @@ export default function HomeScreen() {
     let alive = true;
 
     (async () => {
-      const [conversationState, [camera, media], settings] = await Promise.all([
+      const [conversationState, [camera, media], settings, proxyAuth] = await Promise.all([
         loadConversationState(),
         Promise.all([
           ImagePicker.requestCameraPermissionsAsync(),
           ImagePicker.requestMediaLibraryPermissionsAsync(),
         ]),
         loadAppSettings().catch(() => null),
+        getProxyAuthState(),
       ]);
 
       if (!alive) {
         return;
       }
+
+      if (proxyAuth) proxyAuthRef.current = proxyAuth;
 
       if (settings) {
         const vPreset = findVisualPreset(settings.visual.providerId);
@@ -368,7 +372,9 @@ export default function HomeScreen() {
       const url = resolveApiUrl(settings.reasoning, preset);
       const model = resolveModel(settings.reasoning, preset);
       const key = settings.reasoning.apiKey;
-      if (!url) return;
+      const proxyAuth = proxyAuthRef.current;
+      const useProxy = !key.trim() && proxyAuth?.enabled;
+      if (!url && !useProxy) return;
       activeDeepSeekCancelRef.current?.();
       activeDeepSeekCancelRef.current = streamReasoning(
         problemText,
@@ -387,7 +393,9 @@ export default function HomeScreen() {
           activeDeepSeekCancelRef.current = null;
           setProcessing(false);
         },
-        () => updateMessage(messageId, { status: "reconnecting" })
+        () => updateMessage(messageId, { status: "reconnecting" }),
+        useProxy ? proxyAuth : undefined,
+        settings.reasoning.providerId
       );
     },
     [updateMessage]
@@ -531,9 +539,12 @@ export default function HomeScreen() {
     const reasoningModel = resolveModel(settings.reasoning, rPreset);
     const reasoningKey = settings.reasoning.apiKey;
 
+    const proxyAuth = proxyAuthRef.current;
+
     if (!pendingImageData) {
-      if (!reasoningKey.trim()) {
-        Alert.alert("提示", `请先在设置中配置${rPreset?.label ?? "推理模型"} API Key`);
+      const useProxyReasoning = !reasoningKey.trim() && proxyAuth?.enabled;
+      if (!reasoningKey.trim() && !useProxyReasoning) {
+        Alert.alert("提示", `请先在设置中配置${rPreset?.label ?? "推理模型"} API Key 或登录代理`);
         return;
       }
 
@@ -564,17 +575,20 @@ export default function HomeScreen() {
       return;
     }
 
-    if (!visualKey.trim()) {
-      Alert.alert("提示", `请先在设置中配置${vPreset?.label ?? "视觉识别模型"} API Key`);
+    const useProxyVisual = !visualKey.trim() && proxyAuth?.enabled;
+    const useProxyReasoningImage = !reasoningKey.trim() && proxyAuth?.enabled;
+
+    if (!visualKey.trim() && !useProxyVisual) {
+      Alert.alert("提示", `请先在设置中配置${vPreset?.label ?? "视觉识别模型"} API Key 或登录代理`);
       return;
     }
 
-    if (!reasoningKey.trim()) {
-      Alert.alert("提示", `请先在设置中配置${rPreset?.label ?? "推理模型"} API Key`);
+    if (!reasoningKey.trim() && !useProxyReasoningImage) {
+      Alert.alert("提示", `请先在设置中配置${rPreset?.label ?? "推理模型"} API Key 或登录代理`);
       return;
     }
 
-    if (!visualUrl) {
+    if (!visualUrl && !useProxyVisual) {
       Alert.alert("提示", "请先在设置中配置视觉识别模型的 API 地址");
       return;
     }
@@ -660,7 +674,9 @@ export default function HomeScreen() {
         activeKimiCancelRef.current = null;
         setProcessing(false);
       },
-      () => updateMessage(kimiMessageId, { status: "reconnecting" })
+      () => updateMessage(kimiMessageId, { status: "reconnecting" }),
+      useProxyVisual ? proxyAuth : undefined,
+      settings.visual.providerId
     );
   }, [
     inputText,

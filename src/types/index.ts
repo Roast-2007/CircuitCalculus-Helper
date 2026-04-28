@@ -221,6 +221,14 @@ export type ActiveConversationState = {
   activeConversationId: string;
 };
 
+export interface ProxyAuthState {
+  enabled: boolean;
+  url: string;
+  jwt: string;
+  studentName: string;
+  studentId: string;
+}
+
 export type TabParamList = {
   Home: undefined;
   Settings: undefined;

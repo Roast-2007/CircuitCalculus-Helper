@@ -1,12 +1,15 @@
 import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
-import { AppSettings, ProviderSelection } from "../types";
+import { AppSettings, ProviderSelection, ProxyAuthState } from "../types";
 import { defaultSelectionForPreset, findVisualPreset, findReasoningPreset } from "../constants/providerPresets";
 import { getEmbeddedSettings, getEmbeddedApiKey } from "./embeddedKeys";
 
 const VISUAL_KEY = "app_settings_visual";
 const REASONING_KEY = "app_settings_reasoning";
 const PROVIDER_KEYS_KEY = "provider_api_keys";
+const PROXY_URL_KEY = "proxy_url";
+const PROXY_JWT_KEY = "proxy_jwt";
+const PROXY_STUDENT_KEY = "proxy_student_info";
 
 // 旧键（迁移用）
 const OLD_KEYS = {
@@ -160,4 +163,38 @@ export async function loadAppSettings(): Promise<AppSettings> {
   }
 
   return migrateFromOldKeys();
+}
+
+// ---- Proxy auth state ----
+
+export async function getProxyAuthState(): Promise<ProxyAuthState | null> {
+  const [url, jwtStr, studentJson] = await Promise.all([
+    getItem(PROXY_URL_KEY),
+    getItem(PROXY_JWT_KEY),
+    getItem(PROXY_STUDENT_KEY),
+  ]);
+  if (!url || !jwtStr || !studentJson) return null;
+
+  try {
+    const student = JSON.parse(studentJson);
+    return { enabled: true, url, jwt: jwtStr, studentName: student.name, studentId: student.studentId };
+  } catch {
+    return null;
+  }
+}
+
+export async function saveProxyAuthState(state: ProxyAuthState): Promise<void> {
+  await Promise.all([
+    setItem(PROXY_URL_KEY, state.url),
+    setItem(PROXY_JWT_KEY, state.jwt),
+    setItem(PROXY_STUDENT_KEY, JSON.stringify({ name: state.studentName, studentId: state.studentId })),
+  ]);
+}
+
+export async function clearProxyAuthState(): Promise<void> {
+  await Promise.all([
+    deleteItem(PROXY_URL_KEY),
+    deleteItem(PROXY_JWT_KEY),
+    deleteItem(PROXY_STUDENT_KEY),
+  ]);
 }

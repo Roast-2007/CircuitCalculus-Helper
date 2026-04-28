@@ -1,3 +1,5 @@
+import { ProxyAuthState } from "../types";
+
 /** If no data received for this long, abort */
 const DEFAULT_SILENCE_TIMEOUT = 120_000;
 
@@ -213,6 +215,40 @@ function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.replace(/\/+$/, "");
 }
 
+export async function loginViaProxy(
+  proxyUrl: string,
+  name: string,
+  studentId: string,
+  verificationCode: string
+): Promise<{ jwt: string; student: { studentId: string; name: string; class: string } }> {
+  const url = `${normalizeBaseUrl(proxyUrl)}/v1/auth/login`;
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", url);
+    xhr.setRequestHeader("Content-Type", "application/json");
+    xhr.timeout = 10_000;
+
+    xhr.onload = () => {
+      try {
+        const data = JSON.parse(xhr.responseText);
+        if (xhr.status === 200 && data.success) {
+          resolve({ jwt: data.token, student: data.student });
+        } else {
+          reject(new ApiError(data.error || "登录失败", xhr.status, proxyUrl));
+        }
+      } catch {
+        reject(new ApiError("服务器响应异常", xhr.status, proxyUrl));
+      }
+    };
+
+    xhr.onerror = () => reject(new ApiError("网络连接失败，请检查代理地址", undefined, proxyUrl));
+    xhr.ontimeout = () => reject(new ApiError("请求超时", undefined, proxyUrl));
+
+    xhr.send(JSON.stringify({ name, studentId, verificationCode }));
+  });
+}
+
 export function streamVisualRecognition(
   imageBase64: string,
   model: string,
@@ -222,10 +258,18 @@ export function streamVisualRecognition(
   onContent: (text: string) => void,
   onDone: () => void,
   onError: (err: Error) => void,
-  onReconnecting?: () => void
+  onReconnecting?: () => void,
+  proxyAuth?: ProxyAuthState,
+  providerId?: string
 ): CancelFn {
-  if (!apiKey.trim()) {
-    onError(new ApiError("请先在设置中配置视觉识别 API Key", undefined, baseUrl));
+  const useProxy = !apiKey.trim() && proxyAuth?.enabled && proxyAuth.jwt;
+  const effectiveUrl = useProxy
+    ? `${normalizeBaseUrl(proxyAuth!.url)}/v1/chat/completions`
+    : `${normalizeBaseUrl(baseUrl)}/chat/completions`;
+  const authHeader = useProxy ? `Bearer ${proxyAuth!.jwt}` : `Bearer ${apiKey.trim()}`;
+
+  if (!apiKey.trim() && !useProxy) {
+    onError(new ApiError("请先在设置中配置视觉识别 API Key 或登录代理", undefined, baseUrl));
     return () => {};
   }
 
@@ -333,10 +377,11 @@ export function streamVisualRecognition(
     }
 
     currentAbort = startXhrStream(
-      `${normalizeBaseUrl(baseUrl)}/chat/completions`,
+      effectiveUrl,
       {
-        Authorization: `Bearer ${apiKey.trim()}`,
+        Authorization: authHeader,
         "Content-Type": "application/json",
+        ...(useProxy && providerId ? { "x-provider": providerId } : {}),
       },
       JSON.stringify({
         model,
@@ -407,10 +452,18 @@ export function streamReasoning(
   onContent: (text: string) => void,
   onDone: () => void,
   onError: (err: Error) => void,
-  onReconnecting?: () => void
+  onReconnecting?: () => void,
+  proxyAuth?: ProxyAuthState,
+  providerId?: string
 ): CancelFn {
-  if (!apiKey.trim()) {
-    onError(new ApiError("请先在设置中配置推理模型 API Key", undefined, baseUrl));
+  const useProxy = !apiKey.trim() && proxyAuth?.enabled && proxyAuth.jwt;
+  const effectiveUrl = useProxy
+    ? `${normalizeBaseUrl(proxyAuth!.url)}/v1/chat/completions`
+    : `${normalizeBaseUrl(baseUrl)}/chat/completions`;
+  const authHeader = useProxy ? `Bearer ${proxyAuth!.jwt}` : `Bearer ${apiKey.trim()}`;
+
+  if (!apiKey.trim() && !useProxy) {
+    onError(new ApiError("请先在设置中配置推理模型 API Key 或登录代理", undefined, baseUrl));
     return () => {};
   }
 
@@ -462,10 +515,11 @@ export function streamReasoning(
     }
 
     currentAbort = startXhrStream(
-      `${normalizeBaseUrl(baseUrl)}/chat/completions`,
+      effectiveUrl,
       {
-        Authorization: `Bearer ${apiKey.trim()}`,
+        Authorization: authHeader,
         "Content-Type": "application/json",
+        ...(useProxy && providerId ? { "x-provider": providerId } : {}),
       },
       JSON.stringify({
         model,

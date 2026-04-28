@@ -12,10 +12,18 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { AppSettings, ProviderPreset, ProviderSelection } from "../types";
-import { loadAppSettings, loadProviderKeys, saveAppSettings } from "../services/storage";
-import { testApiConnection } from "../services/api";
+import { AppSettings, ProviderPreset, ProviderSelection, ProxyAuthState } from "../types";
+import {
+  loadAppSettings,
+  loadProviderKeys,
+  saveAppSettings,
+  getProxyAuthState,
+  saveProxyAuthState,
+  clearProxyAuthState,
+} from "../services/storage";
+import { testApiConnection, loginViaProxy } from "../services/api";
 import { getEmbeddedSettings, getEmbeddedApiKey } from "../services/embeddedKeys";
+import { DEFAULT_PROXY_URL } from "../services/proxyDefaults";
 import {
   VISUAL_PRESETS,
   REASONING_PRESETS,
@@ -50,17 +58,35 @@ export default function SettingsScreen() {
   const [testingVisual, setTestingVisual] = useState(false);
   const [testingReasoning, setTestingReasoning] = useState(false);
 
+  const [proxyEnabled, setProxyEnabled] = useState(false);
+  const [proxyUrl, setProxyUrl] = useState(DEFAULT_PROXY_URL);
+  const [proxyJwt, setProxyJwt] = useState("");
+  const [proxyStudentName, setProxyStudentName] = useState("");
+  const [proxyStudentId, setProxyStudentId] = useState("");
+  const [proxyName, setProxyName] = useState("");
+  const [proxySid, setProxySid] = useState("");
+  const [proxyCode, setProxyCode] = useState("");
+  const [loginLoading, setLoginLoading] = useState(false);
+
   const providerKeysRef = useRef<Record<string, string>>({});
 
   useEffect(() => {
     (async () => {
-      const [settings, providerKeys] = await Promise.all([
+      const [settings, providerKeys, proxyAuth] = await Promise.all([
         loadAppSettings(),
         loadProviderKeys(),
+        getProxyAuthState(),
       ]);
       providerKeysRef.current = providerKeys;
       setVisual(settings.visual);
       setReasoning(settings.reasoning);
+      if (proxyAuth) {
+        setProxyEnabled(proxyAuth.enabled);
+        setProxyUrl(proxyAuth.url);
+        setProxyJwt(proxyAuth.jwt);
+        setProxyStudentName(proxyAuth.studentName);
+        setProxyStudentId(proxyAuth.studentId);
+      }
       setLoaded(true);
     })();
   }, []);
@@ -184,6 +210,44 @@ export default function SettingsScreen() {
     setTestingReasoning(false);
     Alert.alert(result.success ? "连接成功" : "连接失败", result.message);
   }, [reasoning, reasoningPreset]);
+
+  const handleProxyLogin = useCallback(async () => {
+    if (!proxyUrl.trim() || !proxyName.trim() || !proxySid.trim() || !proxyCode.trim()) {
+      Alert.alert("提示", "请填写代理地址、姓名、学号和验证码");
+      return;
+    }
+    setLoginLoading(true);
+    try {
+      const result = await loginViaProxy(proxyUrl.trim(), proxyName.trim(), proxySid.trim(), proxyCode.trim());
+      setProxyJwt(result.jwt);
+      setProxyStudentName(result.student.name);
+      setProxyStudentId(result.student.studentId);
+      setProxyName("");
+      setProxySid("");
+      setProxyCode("");
+      await saveProxyAuthState({
+        enabled: true,
+        url: proxyUrl.trim(),
+        jwt: result.jwt,
+        studentName: result.student.name,
+        studentId: result.student.studentId,
+      });
+      Alert.alert("登录成功", `${result.student.name} (${result.student.studentId})`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "登录失败";
+      Alert.alert("登录失败", msg);
+    } finally {
+      setLoginLoading(false);
+    }
+  }, [proxyUrl, proxyName, proxySid, proxyCode]);
+
+  const handleProxyLogout = useCallback(async () => {
+    setProxyJwt("");
+    setProxyStudentName("");
+    setProxyStudentId("");
+    await clearProxyAuthState();
+    Alert.alert("已退出", "代理登录已注销");
+  }, []);
 
   if (!loaded || !visual || !reasoning) {
     return (
@@ -430,6 +494,101 @@ export default function SettingsScreen() {
           </Pressable>
         </View>
 
+        {/* Proxy Login */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>代理登录</Text>
+          <Text style={styles.sectionSubtitle}>通过学校服务器使用远程 API Key，无需自行配置</Text>
+
+          <View style={styles.switchRow}>
+            <Text style={styles.switchLabel}>启用代理</Text>
+            <Pressable
+              onPress={() => setProxyEnabled((prev) => !prev)}
+              style={[styles.toggleTrack, proxyEnabled && styles.toggleTrackOn]}
+            >
+              <View style={[styles.toggleThumb, proxyEnabled && styles.toggleThumbOn]} />
+            </Pressable>
+          </View>
+
+          {proxyEnabled && (
+            <>
+              <Text style={styles.fieldLabel}>代理服务器地址</Text>
+              <TextInput
+                style={styles.input}
+                value={proxyUrl}
+                onChangeText={setProxyUrl}
+                placeholder="http://154.21.200.102:3000"
+                placeholderTextColor={theme.colors.mutedForeground}
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="url"
+              />
+
+              {proxyJwt ? (
+                <View style={styles.loggedInBox}>
+                  <View style={styles.loggedInRow}>
+                    <Ionicons name="checkmark-circle" size={20} color="#4CAF50" />
+                    <Text style={styles.loggedInText}>
+                      已登录: {proxyStudentName}（{proxyStudentId}）
+                    </Text>
+                  </View>
+                  <Pressable
+                    onPress={handleProxyLogout}
+                    style={({ pressed }) => [styles.logoutBtn, pressed && { opacity: 0.7 }]}
+                  >
+                    <Text style={styles.logoutBtnText}>退出登录</Text>
+                  </Pressable>
+                </View>
+              ) : (
+                <>
+                  <Text style={styles.fieldLabel}>姓名</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={proxyName}
+                    onChangeText={setProxyName}
+                    placeholder="输入姓名"
+                    placeholderTextColor={theme.colors.mutedForeground}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                  <Text style={styles.fieldLabel}>学号</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={proxySid}
+                    onChangeText={setProxySid}
+                    placeholder="输入学号"
+                    placeholderTextColor={theme.colors.mutedForeground}
+                    keyboardType="number-pad"
+                  />
+                  <Text style={styles.fieldLabel}>验证码（身份证后四位）</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={proxyCode}
+                    onChangeText={setProxyCode}
+                    placeholder="输入验证码"
+                    placeholderTextColor={theme.colors.mutedForeground}
+                    secureTextEntry
+                    keyboardType="number-pad"
+                    maxLength={4}
+                  />
+                  <Pressable
+                    onPress={handleProxyLogin}
+                    style={({ pressed }) => [
+                      styles.loginBtn,
+                      loginLoading && styles.loginBtnDisabled,
+                      pressed && { opacity: 0.7 },
+                    ]}
+                    disabled={loginLoading}
+                  >
+                    <Text style={styles.loginBtnText}>
+                      {loginLoading ? "登录中..." : "登录"}
+                    </Text>
+                  </Pressable>
+                </>
+              )}
+            </>
+          )}
+        </View>
+
         {/* Info */}
         <View style={styles.infoSection}>
           <Text style={styles.infoTitle}>使用说明</Text>
@@ -657,6 +816,80 @@ const styles = StyleSheet.create({
   testBtnDisabled: { opacity: 0.5 },
   testBtnText: {
     color: theme.colors.primary,
+    fontSize: theme.fontSize.sm,
+    fontWeight: theme.fontWeight.semibold,
+  },
+  switchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: theme.spacing.sm,
+    marginBottom: theme.spacing.xs,
+  },
+  switchLabel: {
+    fontSize: theme.fontSize.sm,
+    fontWeight: theme.fontWeight.medium,
+    color: theme.colors.foreground,
+  },
+  toggleTrack: {
+    width: 48,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: theme.colors.border,
+    justifyContent: "center",
+    paddingHorizontal: 2,
+  },
+  toggleTrackOn: {
+    backgroundColor: theme.colors.primary,
+  },
+  toggleThumb: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: "#fff",
+    marginLeft: 0,
+  },
+  toggleThumbOn: {
+    marginLeft: 20,
+  },
+  loggedInBox: {
+    backgroundColor: "#E8F5E9",
+    borderRadius: theme.radius.lg,
+    padding: theme.spacing.md,
+    marginTop: theme.spacing.sm,
+  },
+  loggedInRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing.sm,
+  },
+  loggedInText: {
+    fontSize: theme.fontSize.sm,
+    fontWeight: theme.fontWeight.semibold,
+    color: "#2E7D32",
+  },
+  logoutBtn: {
+    marginTop: theme.spacing.sm,
+    backgroundColor: "#FFEBEE",
+    borderRadius: theme.radius.lg,
+    paddingVertical: 8,
+    alignItems: "center",
+  },
+  logoutBtnText: {
+    color: "#C62828",
+    fontSize: theme.fontSize.sm,
+    fontWeight: theme.fontWeight.semibold,
+  },
+  loginBtn: {
+    backgroundColor: theme.colors.primary,
+    borderRadius: theme.radius.lg,
+    paddingVertical: 10,
+    alignItems: "center",
+    marginTop: theme.spacing.sm,
+  },
+  loginBtnDisabled: { opacity: 0.5 },
+  loginBtnText: {
+    color: theme.colors.primaryForeground,
     fontSize: theme.fontSize.sm,
     fontWeight: theme.fontWeight.semibold,
   },
