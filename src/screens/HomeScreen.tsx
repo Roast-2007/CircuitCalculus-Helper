@@ -372,7 +372,7 @@ export default function HomeScreen() {
       const url = resolveApiUrl(settings.reasoning, preset);
       const model = resolveModel(settings.reasoning, preset);
       const key = settings.reasoning.apiKey;
-      const proxyAuth = proxyAuthRef.current;
+      const proxyAuth = await getProxyAuthState();
       const useProxy = !key.trim() && proxyAuth?.enabled;
       if (!url && !useProxy) return;
       activeDeepSeekCancelRef.current?.();
@@ -539,7 +539,7 @@ export default function HomeScreen() {
     const reasoningModel = resolveModel(settings.reasoning, rPreset);
     const reasoningKey = settings.reasoning.apiKey;
 
-    const proxyAuth = proxyAuthRef.current;
+    const proxyAuth = await getProxyAuthState();
 
     if (!pendingImageData) {
       const useProxyReasoning = !reasoningKey.trim() && proxyAuth?.enabled;
