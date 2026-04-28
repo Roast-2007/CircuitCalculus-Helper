@@ -158,4 +158,4 @@ https://github.com/Roast-2007/CircuitCalculus-Helper
 
 本项目基于 [MIT License](LICENSE) 开源。
 
-后端将在后续开源。
+后端代理服务器已在独立仓库开源：[CircuitCalculus Helper Proxy](https://github.com/Roast-2007/CircuitCalculus-Helper-Proxy)。
