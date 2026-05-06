@@ -14,6 +14,7 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as ImagePicker from "expo-image-picker";
 import { manipulateAsync, SaveFormat, ImageResult } from "expo-image-manipulator";
 import { buildDeepSeekCircuitPrompt, circuitTopologyToText, createCircuitTopology } from "../services/circuitSerialize";
@@ -95,6 +96,8 @@ function buildConversationTranscript(messages: Message[]): string {
 }
 
 export default function HomeScreen() {
+  const insets = useSafeAreaInsets();
+  const bottomInset = Math.max(insets.bottom, Platform.OS === "android" ? 8 : 20);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState("");
   const [conversationStateReady, setConversationStateReady] = useState(false);
@@ -780,9 +783,20 @@ export default function HomeScreen() {
   const contentContainerStyle = useMemo(
     () => [
       styles.messageContent,
+      { paddingBottom: bottomInset + theme.spacing.sm },
       messages.length === 0 ? styles.emptyContent : null,
     ],
-    [messages.length]
+    [bottomInset, messages.length]
+  );
+
+  const inputBarStyle = useMemo(
+    () => [styles.inputBar, { paddingBottom: bottomInset }],
+    [bottomInset]
+  );
+
+  const scrollToBottomStyle = useMemo(
+    () => [styles.scrollToBottomBtn, { bottom: bottomInset + 80 }],
+    [bottomInset]
   );
 
   const hasTopology = reviewData?.topology !== null && reviewData?.topology !== undefined;
@@ -818,8 +832,8 @@ export default function HomeScreen() {
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={0}
     >
       <View style={styles.header}>
         <View style={styles.headerTextWrap}>
@@ -918,7 +932,7 @@ export default function HomeScreen() {
         <Pressable
           onPress={scrollToBottom}
           style={({ pressed }) => [
-            styles.scrollToBottomBtn,
+            scrollToBottomStyle,
             pressed && { opacity: 0.7 },
           ]}
         >
@@ -926,7 +940,7 @@ export default function HomeScreen() {
         </Pressable>
       )}
 
-      <View style={styles.inputBar}>
+      <View style={inputBarStyle}>
         {pendingImageData ? (
           <View style={styles.pendingImageContainer}>
             <Image source={{ uri: pendingImageData.uri }} style={styles.pendingImage} />
@@ -1269,7 +1283,7 @@ const styles = StyleSheet.create({
     borderTopColor: theme.colors.border,
     paddingHorizontal: theme.spacing.md,
     paddingTop: theme.spacing.sm,
-    paddingBottom: Platform.OS === "android" ? theme.spacing.sm : 20,
+    paddingBottom: theme.spacing.sm,
   },
   pendingImageContainer: {
     position: "relative",

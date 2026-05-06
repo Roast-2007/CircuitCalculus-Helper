@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
+  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -12,6 +13,7 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppSettings, ProviderPreset, ProviderSelection, ProxyAuthState } from "../types";
 import {
   loadAppSettings,
@@ -21,7 +23,8 @@ import {
   saveProxyAuthState,
   clearProxyAuthState,
 } from "../services/storage";
-import { testApiConnection, loginViaProxy } from "../services/api";
+import { checkAppVersion, loginViaProxy, testApiConnection } from "../services/api";
+import { APP_VERSION, APP_VERSION_CODE } from "../constants/appVersion";
 import { getEmbeddedSettings, getEmbeddedApiKey } from "../services/embeddedKeys";
 import { DEFAULT_PROXY_URL } from "../services/proxyDefaults";
 import {
@@ -51,6 +54,8 @@ function modelOptions(preset: ProviderPreset | undefined) {
 }
 
 export default function SettingsScreen() {
+  const insets = useSafeAreaInsets();
+  const bottomInset = Math.max(insets.bottom, Platform.OS === "android" ? 8 : 20);
   const [visual, setVisual] = useState<ProviderSelection | null>(null);
   const [reasoning, setReasoning] = useState<ProviderSelection | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -67,6 +72,7 @@ export default function SettingsScreen() {
   const [proxySid, setProxySid] = useState("");
   const [proxyCode, setProxyCode] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
 
   const providerKeysRef = useRef<Record<string, string>>({});
 
@@ -249,6 +255,44 @@ export default function SettingsScreen() {
     Alert.alert("已退出", "代理登录已注销");
   }, []);
 
+  const handleCheckUpdate = useCallback(async () => {
+    const url = proxyUrl.trim();
+    if (!url) {
+      Alert.alert("提示", "请先填写代理服务器地址");
+      return;
+    }
+
+    setCheckingUpdate(true);
+    try {
+      const result = await checkAppVersion(url, APP_VERSION, APP_VERSION_CODE);
+      if (!result.hasUpdate) {
+        Alert.alert("已是最新版", `当前版本 ${APP_VERSION} 已是最新版`);
+        return;
+      }
+
+      const changelog = result.changelog.length > 0 ? `\n\n${result.changelog.map((item) => `• ${item}`).join("\n")}` : "";
+      Alert.alert(
+        "发现新版本",
+        `最新版 ${result.latestVersion} 已可下载。${changelog}`,
+        [
+          { text: "稍后再说", style: "cancel" },
+          {
+            text: "打开浏览器",
+            onPress: () => {
+              Linking.openURL(result.downloadUrl).catch(() => {
+                Alert.alert("打开失败", "请稍后重试");
+              });
+            },
+          },
+        ]
+      );
+    } catch (err: unknown) {
+      Alert.alert("检查失败", err instanceof Error ? err.message : "请稍后重试");
+    } finally {
+      setCheckingUpdate(false);
+    }
+  }, [proxyUrl]);
+
   if (!loaded || !visual || !reasoning) {
     return (
       <View style={styles.loadingContainer}>
@@ -266,14 +310,15 @@ export default function SettingsScreen() {
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={0}
     >
       <View style={styles.header}>
         <Text style={styles.headerTitle}>设置</Text>
       </View>
       <ScrollView
         style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: bottomInset + 40 }]}
         keyboardShouldPersistTaps="handled"
       >
         {/* 视觉识别模型 */}
@@ -589,6 +634,28 @@ export default function SettingsScreen() {
           )}
         </View>
 
+        {/* Update Check */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>版本更新</Text>
+          <Text style={styles.sectionSubtitle}>从当前代理服务器查询最新版，发现更新后用系统浏览器打开下载页</Text>
+          <View style={styles.versionRow}>
+            <Text style={styles.versionLabel}>当前版本</Text>
+            <Text style={styles.versionValue}>{APP_VERSION}</Text>
+          </View>
+          <Pressable
+            onPress={handleCheckUpdate}
+            style={({ pressed }) => [
+              styles.updateBtn,
+              checkingUpdate && styles.updateBtnDisabled,
+              pressed && { opacity: 0.7 },
+            ]}
+            disabled={checkingUpdate}
+          >
+            <Ionicons name="cloud-download-outline" size={16} color={theme.colors.primary} />
+            <Text style={styles.updateBtnText}>{checkingUpdate ? "检查中..." : "检查版本更新"}</Text>
+          </Pressable>
+        </View>
+
         {/* Info */}
         <View style={styles.infoSection}>
           <Text style={styles.infoTitle}>使用说明</Text>
@@ -646,7 +713,7 @@ const styles = StyleSheet.create({
     color: theme.colors.headerText,
   },
   scrollView: { flex: 1 },
-  scrollContent: { padding: theme.spacing.lg, paddingBottom: 40 },
+  scrollContent: { padding: theme.spacing.lg },
   section: {
     backgroundColor: theme.colors.card,
     borderRadius: theme.radius.xl,
@@ -742,6 +809,43 @@ const styles = StyleSheet.create({
     fontSize: theme.fontSize.sm,
     color: theme.colors.warningText,
     lineHeight: 18,
+  },
+  versionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: theme.colors.muted,
+    borderRadius: theme.radius.lg,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: 10,
+    marginTop: theme.spacing.sm,
+  },
+  versionLabel: {
+    fontSize: theme.fontSize.sm,
+    color: theme.colors.mutedForeground,
+  },
+  versionValue: {
+    fontSize: theme.fontSize.sm,
+    fontWeight: theme.fontWeight.semibold,
+    color: theme.colors.foreground,
+  },
+  updateBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: theme.spacing.xs,
+    backgroundColor: theme.colors.primaryMuted,
+    borderRadius: theme.radius.lg,
+    paddingVertical: 10,
+    marginTop: theme.spacing.sm,
+    borderWidth: 1,
+    borderColor: `${theme.colors.primary}33`,
+  },
+  updateBtnDisabled: { opacity: 0.5 },
+  updateBtnText: {
+    color: theme.colors.primary,
+    fontSize: theme.fontSize.sm,
+    fontWeight: theme.fontWeight.semibold,
   },
   infoSection: {
     backgroundColor: theme.colors.primaryMuted,

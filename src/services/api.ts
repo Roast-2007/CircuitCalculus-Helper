@@ -15,6 +15,15 @@ export class ApiError extends Error {
   }
 }
 
+export type AppVersionCheckResult = {
+  hasUpdate: boolean;
+  latestVersion: string;
+  latestVersionCode: number | null;
+  downloadUrl: string;
+  apkPath: string;
+  changelog: string[];
+};
+
 export type CancelFn = () => void;
 
 type StreamHandlers = {
@@ -41,6 +50,7 @@ function parseErrorBody(responseText: string): string | null {
     const message =
       parsed?.error?.message ||
       parsed?.message ||
+      (typeof parsed?.error === "string" ? parsed.error : null) ||
       parsed?.detail ||
       parsed?.msg ||
       null;
@@ -213,6 +223,121 @@ function startXhrStream(
 
 function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.replace(/\/+$/, "");
+}
+
+function compareVersions(left: string, right: string): number {
+  const leftParts = left.split(".").map((part) => Number.parseInt(part, 10) || 0);
+  const rightParts = right.split(".").map((part) => Number.parseInt(part, 10) || 0);
+  const maxLength = Math.max(leftParts.length, rightParts.length);
+
+  for (let index = 0; index < maxLength; index++) {
+    const diff = (leftParts[index] || 0) - (rightParts[index] || 0);
+    if (diff !== 0) {
+      return diff;
+    }
+  }
+
+  return 0;
+}
+
+function asString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function asNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function asStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+}
+
+function resolveDownloadUrl(downloadUrl: string, downloadPath: string): string {
+  if (/^https?:\/\//i.test(downloadUrl)) {
+    return downloadUrl;
+  }
+  if (/^https?:\/\//i.test(downloadPath)) {
+    return downloadPath;
+  }
+  return "";
+}
+
+export async function checkAppVersion(
+  proxyUrl: string,
+  currentVersion: string,
+  currentVersionCode?: number
+): Promise<AppVersionCheckResult> {
+  const baseUrl = normalizeBaseUrl(proxyUrl);
+  const url = `${baseUrl}/v1/app/version?platform=android`;
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("GET", url);
+    xhr.timeout = 10_000;
+
+    xhr.onload = () => {
+      try {
+        const parsed = JSON.parse(xhr.responseText);
+        if (xhr.status < 200 || xhr.status >= 300 || !parsed?.success) {
+          reject(new ApiError(parseErrorBody(xhr.responseText) || "版本信息查询失败", xhr.status, proxyUrl));
+          return;
+        }
+
+        const data = parsed.data;
+        if (!data || typeof data !== "object") {
+          reject(new ApiError("服务器版本信息格式异常", xhr.status, proxyUrl));
+          return;
+        }
+
+        const latestVersion = asString(data.latestVersion);
+        if (!latestVersion) {
+          reject(new ApiError("服务器未返回最新版版本号", xhr.status, proxyUrl));
+          return;
+        }
+
+        const latestVersionCode = asNumber(data.latestVersionCode);
+        const downloadUrl = resolveDownloadUrl(asString(data.downloadUrl), asString(data.downloadPath));
+        if (!downloadUrl) {
+          reject(new ApiError("服务器未配置下载页地址", xhr.status, proxyUrl));
+          return;
+        }
+        const apkPath = asString(data.apkPath);
+        const hasUpdate =
+          typeof currentVersionCode === "number" && latestVersionCode !== null
+            ? latestVersionCode > currentVersionCode
+            : compareVersions(latestVersion, currentVersion) > 0;
+
+        resolve({
+          hasUpdate,
+          latestVersion,
+          latestVersionCode,
+          downloadUrl,
+          apkPath,
+          changelog: asStringArray(data.changelog),
+        });
+      } catch (err: unknown) {
+        if (err instanceof ApiError) {
+          reject(err);
+          return;
+        }
+        reject(new ApiError("服务器响应异常", xhr.status, proxyUrl));
+      }
+    };
+
+    xhr.onerror = () => reject(new ApiError("网络连接失败，请检查代理地址", undefined, proxyUrl));
+    xhr.ontimeout = () => reject(new ApiError("请求超时", undefined, proxyUrl));
+    xhr.send();
+  });
 }
 
 export async function loginViaProxy(

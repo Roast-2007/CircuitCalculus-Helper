@@ -4,6 +4,7 @@ import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { StatusBar } from "expo-status-bar";
 import { Platform, Text, View, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import HomeScreen from "./src/screens/HomeScreen";
 import SettingsScreen from "./src/screens/SettingsScreen";
 import { loadAppSettings } from "./src/services/storage";
@@ -11,6 +12,61 @@ import { TabParamList } from "./src/types";
 import { theme } from "./src/theme";
 
 const Tab = createBottomTabNavigator<TabParamList>();
+
+function AppTabs() {
+  const insets = useSafeAreaInsets();
+  const bottomInset = Math.max(insets.bottom, Platform.OS === "android" ? 8 : 20);
+  const tabBarHeight = Platform.OS === "android" ? 58 + bottomInset : 54 + bottomInset;
+
+  return (
+    <NavigationContainer>
+      <Tab.Navigator
+        screenOptions={{
+          headerShown: false,
+          tabBarHideOnKeyboard: true,
+          tabBarActiveTintColor: theme.colors.primary,
+          tabBarInactiveTintColor: theme.colors.mutedForeground,
+          tabBarStyle: {
+            backgroundColor: theme.colors.background,
+            borderTopWidth: 1,
+            borderTopColor: theme.colors.border,
+            paddingBottom: bottomInset,
+            paddingTop: 6,
+            height: tabBarHeight,
+          },
+          tabBarItemStyle: {
+            paddingTop: 2,
+          },
+          tabBarLabelStyle: {
+            fontSize: 12,
+            fontWeight: theme.fontWeight.medium,
+          },
+        }}
+      >
+        <Tab.Screen
+          name="Home"
+          component={HomeScreen}
+          options={{
+            tabBarLabel: "解答",
+            tabBarIcon: ({ color }: { color: string }) => (
+              <Ionicons name="chatbubble-ellipses-outline" size={22} color={color} />
+            ),
+          }}
+        />
+        <Tab.Screen
+          name="Settings"
+          component={SettingsScreen}
+          options={{
+            tabBarLabel: "设置",
+            tabBarIcon: ({ color }: { color: string }) => (
+              <Ionicons name="settings-outline" size={22} color={color} />
+            ),
+          }}
+        />
+      </Tab.Navigator>
+    </NavigationContainer>
+  );
+}
 
 export default function App() {
   const [configReady, setConfigReady] = useState(false);
@@ -35,51 +91,10 @@ export default function App() {
   }
 
   return (
-    <>
+    <SafeAreaProvider>
       <StatusBar style="dark" />
-      <NavigationContainer>
-        <Tab.Navigator
-          screenOptions={{
-            headerShown: false,
-            tabBarActiveTintColor: theme.colors.primary,
-            tabBarInactiveTintColor: theme.colors.mutedForeground,
-            tabBarStyle: {
-              backgroundColor: theme.colors.background,
-              borderTopWidth: 1,
-              borderTopColor: theme.colors.border,
-              paddingBottom: Platform.OS === "android" ? 8 : 20,
-              paddingTop: 4,
-              height: Platform.OS === "android" ? 56 : 80,
-            },
-            tabBarLabelStyle: {
-              fontSize: 12,
-              fontWeight: theme.fontWeight.medium,
-            },
-          }}
-        >
-          <Tab.Screen
-            name="Home"
-            component={HomeScreen}
-            options={{
-              tabBarLabel: "解答",
-              tabBarIcon: ({ color }: { color: string }) => (
-                <Ionicons name="chatbubble-ellipses-outline" size={22} color={color} />
-              ),
-            }}
-          />
-          <Tab.Screen
-            name="Settings"
-            component={SettingsScreen}
-            options={{
-              tabBarLabel: "设置",
-              tabBarIcon: ({ color }: { color: string }) => (
-                <Ionicons name="settings-outline" size={22} color={color} />
-              ),
-            }}
-          />
-        </Tab.Navigator>
-      </NavigationContainer>
-    </>
+      <AppTabs />
+    </SafeAreaProvider>
   );
 }
 
