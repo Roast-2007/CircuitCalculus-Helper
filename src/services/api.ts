@@ -1,4 +1,4 @@
-import { ProxyAuthState } from "../types";
+import { ProxyAuthState, AppAnnouncement } from "../types";
 
 /** If no data received for this long, abort */
 const DEFAULT_SILENCE_TIMEOUT = 120_000;
@@ -340,6 +340,49 @@ export async function checkAppVersion(
   });
 }
 
+export async function fetchAnnouncement(proxyUrl: string): Promise<AppAnnouncement> {
+  const baseUrl = normalizeBaseUrl(proxyUrl);
+  const url = `${baseUrl}/v1/app/announcement?platform=android`;
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("GET", url);
+    xhr.timeout = 10_000;
+
+    xhr.onload = () => {
+      try {
+        const parsed = JSON.parse(xhr.responseText);
+        if (xhr.status < 200 || xhr.status >= 300 || !parsed?.success) {
+          reject(new ApiError("公告信息获取失败", xhr.status, proxyUrl));
+          return;
+        }
+
+        const data = parsed.data;
+        if (!data || typeof data !== "object") {
+          reject(new ApiError("公告格式异常", xhr.status, proxyUrl));
+          return;
+        }
+
+        resolve({
+          hasAnnouncement: Boolean(data.hasAnnouncement),
+          title: asString(data.title),
+          body: asStringArray(data.body),
+        });
+      } catch (err: unknown) {
+        if (err instanceof ApiError) {
+          reject(err);
+          return;
+        }
+        reject(new ApiError("服务器响应异常", xhr.status, proxyUrl));
+      }
+    };
+
+    xhr.onerror = () => reject(new ApiError("网络连接失败，请检查代理地址", undefined, proxyUrl));
+    xhr.ontimeout = () => reject(new ApiError("请求超时", undefined, proxyUrl));
+    xhr.send();
+  });
+}
+
 export async function loginViaProxy(
   proxyUrl: string,
   name: string,
@@ -406,13 +449,15 @@ export function streamVisualRecognition(
           "【识别流程】",
           "1. 判断图片类型：",
           "   - 若包含电路符号、元件、连线、节点 → isCircuit = true",
-          "   - 若为数学题、文字题、公式等非电路内容 → isCircuit = false",
+          "   - 若为数学题、文字题、公式等非电路内容→ isCircuit = false",
           "2. 详细描述电路结构、节点、元件和连接关系；非电路内容则提取题目文字和公式。",
-          "3. 输出一个 ```json 代码块（格式见下方）。",
+          "3. 输出一个 ```json 代码块（格式见下方，注意标准换行）。",
           "",
           "【分析原则】",
           "- 对于复杂电路，请逐个元件、逐个节点地扫描和记录，不遗漏任何可见元素。",
+          "- 如果图片中存在不止一个电路图导致无法准确输出单个电路图的结构，请输出isCircuit = false，并在 extractedText 中说明无法识别非单一的电路图。",
           "- 相信你的第一次判断，不要反复质疑或修正。以你最初看到的电路结构为准。",
+          "- 如果你对电路图的任意部分有不确定地方或者无法判断的元素，请大胆做出合理推断并在 extractedText 中说明你的推断依据和不确定之处，而不是回避或放弃输出。",
           "- 对于不确定方向的元件，根据电路图中实际绘制方向推断；无法确定时填写 orientation: \"auto\"。",
           "- 电压源/电流源若竖着画，orientation 必须填 \"vertical\"。",
           "- 受控源（vcvs / vccs / ccvs / cccs）必须保留完整端子和控制关系，不能省略。",
@@ -603,7 +648,7 @@ export function streamReasoning(
     "   - 自然语言描述中会指明量所属的支路/元件和方向。\n" +
     "4. 相信自己的判断，遇到复杂问题时逐个拆解，不反复推翻已有结论。\n" +
     "5. 数学题使用 LaTeX 格式（$...$ 行内公式，$$...$$ 独立公式）展示公式。\n" +
-    "6. 最终答案明确给出，推理过程在前、结论在后。";
+    "6. 最终答案明确给出，推理过程在前、结论在后。请在过程中像一位老师一样逐步讲解不跳步，遇到关键概念可以在后面跟着对这个概念的简单讲解，最后输出答案。";
 
   const MAX_RETRIES = 3;
   const BACKOFF_MS = [1000, 2000, 4000];

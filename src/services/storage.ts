@@ -10,6 +10,7 @@ const PROVIDER_KEYS_KEY = "provider_api_keys";
 const PROXY_URL_KEY = "proxy_url";
 const PROXY_JWT_KEY = "proxy_jwt";
 const PROXY_STUDENT_KEY = "proxy_student_info";
+const DISMISSED_ANNOUNCEMENT_VERSION_KEY = "dismissed_announcement_version";
 
 // 旧键（迁移用）
 const OLD_KEYS = {
@@ -201,4 +202,15 @@ export async function clearProxyAuthState(): Promise<void> {
     deleteItem(PROXY_JWT_KEY),
     deleteItem(PROXY_STUDENT_KEY),
   ]);
+}
+
+export async function getDismissedAnnouncementVersion(): Promise<number> {
+  const raw = await getItem(DISMISSED_ANNOUNCEMENT_VERSION_KEY);
+  if (!raw) return 0;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+export async function saveDismissedAnnouncementVersion(version: number): Promise<void> {
+  await setItem(DISMISSED_ANNOUNCEMENT_VERSION_KEY, String(version));
 }

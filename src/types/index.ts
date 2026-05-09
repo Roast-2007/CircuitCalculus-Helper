@@ -229,6 +229,12 @@ export interface ProxyAuthState {
   studentId: string;
 }
 
+export type AppAnnouncement = {
+  hasAnnouncement: boolean;
+  title: string;
+  body: string[];
+};
+
 export type TabParamList = {
   Home: undefined;
   Settings: undefined;

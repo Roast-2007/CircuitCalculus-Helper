@@ -14,7 +14,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { AppSettings, ProviderPreset, ProviderSelection, ProxyAuthState } from "../types";
+import { AppSettings, AppAnnouncement, ProviderPreset, ProviderSelection, ProxyAuthState } from "../types";
 import {
   loadAppSettings,
   loadProviderKeys,
@@ -22,8 +22,10 @@ import {
   getProxyAuthState,
   saveProxyAuthState,
   clearProxyAuthState,
+  getDismissedAnnouncementVersion,
+  saveDismissedAnnouncementVersion,
 } from "../services/storage";
-import { checkAppVersion, loginViaProxy, testApiConnection } from "../services/api";
+import { checkAppVersion, fetchAnnouncement, loginViaProxy, testApiConnection } from "../services/api";
 import { APP_VERSION, APP_VERSION_CODE } from "../constants/appVersion";
 import { getEmbeddedSettings, getEmbeddedApiKey } from "../services/embeddedKeys";
 import { DEFAULT_PROXY_URL } from "../services/proxyDefaults";
@@ -73,6 +75,8 @@ export default function SettingsScreen() {
   const [proxyCode, setProxyCode] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [announcement, setAnnouncement] = useState<AppAnnouncement | null>(null);
+  const [announcementLoading, setAnnouncementLoading] = useState(false);
 
   const providerKeysRef = useRef<Record<string, string>>({});
 
@@ -95,6 +99,38 @@ export default function SettingsScreen() {
       }
       setLoaded(true);
     })();
+  }, []);
+
+  useEffect(() => {
+    if (!loaded || !proxyUrl.trim()) return;
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        setAnnouncementLoading(true);
+        const result = await fetchAnnouncement(proxyUrl.trim());
+        if (!cancelled && result.hasAnnouncement) {
+          const dismissedVersion = await getDismissedAnnouncementVersion();
+          if (dismissedVersion < APP_VERSION_CODE) {
+            setAnnouncement(result);
+          }
+        }
+      } catch {
+        // silently fail -- announcement is non-critical
+      } finally {
+        if (!cancelled) setAnnouncementLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loaded, proxyUrl]);
+
+  const handleDismissAnnouncement = useCallback(async () => {
+    setAnnouncement(null);
+    await saveDismissedAnnouncementVersion(APP_VERSION_CODE);
   }, []);
 
   const visualPreset = visual ? findVisualPreset(visual.providerId) : undefined;
@@ -634,6 +670,22 @@ export default function SettingsScreen() {
           )}
         </View>
 
+        {/* Announcement Banner */}
+        {announcement && (
+          <View style={styles.announcementSection}>
+            <View style={styles.announcementHeader}>
+              <Ionicons name="megaphone-outline" size={16} color={theme.colors.primary} />
+              <Text style={styles.announcementTitle}>{announcement.title}</Text>
+              <Pressable onPress={handleDismissAnnouncement} style={styles.announcementDismiss}>
+                <Ionicons name="close" size={18} color={theme.colors.mutedForeground} />
+              </Pressable>
+            </View>
+            {announcement.body.map((line, index) => (
+              <Text key={index} style={styles.announcementBody}>{line}</Text>
+            ))}
+          </View>
+        )}
+
         {/* Update Check */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>版本更新</Text>
@@ -995,5 +1047,34 @@ const styles = StyleSheet.create({
     color: theme.colors.primaryForeground,
     fontSize: theme.fontSize.sm,
     fontWeight: theme.fontWeight.semibold,
+  },
+  announcementSection: {
+    backgroundColor: "#FFF8E1",
+    borderRadius: theme.radius.xl,
+    padding: theme.spacing.lg,
+    marginBottom: theme.spacing.lg,
+    borderWidth: 1,
+    borderColor: "#FFE082",
+  },
+  announcementHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing.sm,
+    marginBottom: theme.spacing.sm,
+  },
+  announcementTitle: {
+    flex: 1,
+    fontSize: theme.fontSize.sm,
+    fontWeight: theme.fontWeight.semibold,
+    color: theme.colors.primary,
+  },
+  announcementDismiss: {
+    padding: theme.spacing.xs,
+  },
+  announcementBody: {
+    fontSize: theme.fontSize.sm,
+    color: theme.colors.foreground,
+    lineHeight: 20,
+    marginTop: theme.spacing.xs,
   },
 });
